@@ -39,6 +39,38 @@ CronTrigger(minute="0", hour="*/2") - every 2h
 | `/bookings` | View bookings |
 | `/past_classes` | View past classes |
 
+## Docker Setup
+
+### Using Docker Compose
+
+```bash
+# Start the bot
+docker-compose up -d
+
+# View logs
+docker-compose logs -f zdrofit-bot
+
+# Stop the bot
+docker-compose down
+```
+
+### Manual Docker Build
+
+```bash
+# Build the image
+docker build -t zdrofit-bot .
+
+# Run the container
+docker run -d \
+  --name zdrofit-bot \
+  --restart unless-stopped \
+  -e TELEGRAM_BOT_TOKEN=your_token \
+  -v $(pwd)/data:/app/data \
+  -v $(pwd)/logs:/app/logs \
+  --env-file .env \
+  zdrofit-bot
+```
+
 ## Testing
 
 ```bash
