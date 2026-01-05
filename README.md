@@ -34,10 +34,12 @@ CronTrigger(minute="0", hour="*/2") - every 2h
 
 | Command | Description |
 |---------|---------|
+| `/start` | Start page |
 | `/login` | Login to Zdrofit |
 | `/filters` | Manage filters |
 | `/bookings` | View bookings |
 | `/past_classes` | View past classes |
+| `/logout` | Logout |
 
 ## Docker Setup
 
