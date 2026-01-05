@@ -1,0 +1,18 @@
+version: '3.8'
+
+services:
+  zdrofit-bot:
+    build: .
+    container_name: zdrofit-class-booker
+    restart: unless-stopped
+    environment:
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - TZ=Europe/Warsaw
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - /etc/timezone:/etc/timezone:ro
+      - /etc/localtime:/etc/localtime:ro
+    env_file:
+      - .env
