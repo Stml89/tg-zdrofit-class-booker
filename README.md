@@ -35,7 +35,7 @@ CronTrigger(minute="0", hour="*/2") - every 2h
 | Command | Description |
 |---------|---------|
 | `/start` | Start page |
-| `/login` | Login to Zdrofit |
+| `/login` | Login to your Zdrofit account |
 | `/filters` | Manage filters |
 | `/bookings` | View bookings |
 | `/past_classes` | View past classes |
