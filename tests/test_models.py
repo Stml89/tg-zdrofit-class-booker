@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.database.models import User, UserFilter, AvailableClass
+from src.database.models import User, UserFilter, AvailableClass, Booking
 
 
 class TestUserModel(unittest.TestCase):
@@ -91,6 +91,31 @@ class TestUserFilter(unittest.TestCase):
         self.assertIsNone(user_filter.trainer_id)
         self.assertIsNone(user_filter.time_from)
         self.assertIsNone(user_filter.weekdays)
+    
+    def test_filter_auto_booking_enabled(self):
+        """Test filter with auto_booking enabled."""
+        user_filter = UserFilter(
+            user_id=123456,
+            club_id=75,
+            club_name="Zdrofit Lazurowa",
+            timetable_id="63",
+            timetable_name="Pilates",
+            auto_booking=True
+        )
+        
+        self.assertTrue(user_filter.auto_booking)
+    
+    def test_filter_auto_booking_default_disabled(self):
+        """Test that auto_booking defaults to False."""
+        user_filter = UserFilter(
+            user_id=123456,
+            club_id=75,
+            club_name="Zdrofit Lazurowa",
+            timetable_id="63",
+            timetable_name="Yoga"
+        )
+        
+        self.assertFalse(user_filter.auto_booking)
 
 
 class TestAvailableClass(unittest.TestCase):
@@ -118,6 +143,87 @@ class TestAvailableClass(unittest.TestCase):
         self.assertEqual(available_class.title, "Trening Cross")
         self.assertEqual(available_class.available_spots, 5)
         self.assertIsNotNone(available_class.created_at)
+
+
+class TestBooking(unittest.TestCase):
+    """Test Booking model."""
+    
+    def test_booking_creation(self):
+        """Test creating a basic booking."""
+        start_time = datetime.now() + timedelta(days=1)
+        
+        booking = Booking(
+            user_id=123456,
+            class_id="1091041",
+            title="Trening Cross",
+            start_time=start_time
+        )
+        
+        self.assertEqual(booking.user_id, 123456)
+        self.assertEqual(booking.class_id, "1091041")
+        self.assertEqual(booking.title, "Trening Cross")
+        self.assertEqual(booking.start_time, start_time)
+        self.assertIsNotNone(booking.created_at)
+    
+    def test_booking_with_auto_booking_fields(self):
+        """Test booking with auto-booking fields."""
+        start_time = datetime.now() + timedelta(days=1)
+        
+        booking = Booking(
+            user_id=123456,
+            class_id="1091041",
+            title="Trening Cross",
+            start_time=start_time,
+            filter_id=1,
+            is_auto_booked=True
+        )
+        
+        self.assertEqual(booking.filter_id, 1)
+        self.assertTrue(booking.is_auto_booked)
+    
+    def test_booking_auto_booked_default_false(self):
+        """Test that is_auto_booked defaults to False."""
+        booking = Booking(
+            user_id=123456,
+            class_id="1091041",
+            title="Trening Cross",
+            start_time=datetime.now()
+        )
+        
+        self.assertFalse(booking.is_auto_booked)
+        self.assertIsNone(booking.filter_id)
+    
+    def test_booking_manual_booking(self):
+        """Test manual booking (without auto-booking fields)."""
+        booking = Booking(
+            user_id=123456,
+            class_id="1091041",
+            title="Yoga",
+            start_time=datetime.now(),
+            is_auto_booked=False
+        )
+        
+        self.assertFalse(booking.is_auto_booked)
+        self.assertIsNone(booking.filter_id)
+    
+    def test_booking_cancellation(self):
+        """Test booking with cancellation info."""
+        start_time = datetime.now() + timedelta(days=1)
+        cancel_time = datetime.now()
+        
+        booking = Booking(
+            user_id=123456,
+            class_id="1091041",
+            title="Pilates",
+            start_time=start_time,
+            cancelled_at=cancel_time,
+            filter_id=1,
+            is_auto_booked=True
+        )
+        
+        self.assertIsNotNone(booking.cancelled_at)
+        self.assertEqual(booking.cancelled_at, cancel_time)
+        self.assertTrue(booking.is_auto_booked)
 
 
 if __name__ == "__main__":
