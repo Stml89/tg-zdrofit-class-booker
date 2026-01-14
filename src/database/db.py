@@ -7,7 +7,7 @@ from typing import List, Optional
 from config.config import DB_PATH
 from src.utils.logger import get_logger
 from src.utils.crypto import PasswordEncryptor
-from src.database.models import User, UserFilter, AvailableClass, Booking, FilterCatalog
+from src.database.models import User, UserFilter, Booking, FilterCatalog
 
 logger = get_logger(__name__)
 
@@ -61,6 +61,7 @@ class Database:
                     time_from TEXT,
                     time_to TEXT,
                     weekdays TEXT,
+                    auto_booking INTEGER DEFAULT 0,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY (user_id) REFERENCES users(telegram_id)
@@ -115,12 +116,36 @@ class Database:
                     start_time TIMESTAMP,
                     booked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     cancelled_at TIMESTAMP,
+                    filter_id INTEGER,
+                    is_auto_booked INTEGER DEFAULT 0,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     UNIQUE(user_id, class_id),
-                    FOREIGN KEY (user_id) REFERENCES users(telegram_id)
+                    FOREIGN KEY (user_id) REFERENCES users(telegram_id),
+                    FOREIGN KEY (filter_id) REFERENCES user_filters(id)
                 )
             ''')
+            
+            # Add auto_booking column if it doesn't exist (migration)
+            try:
+                cursor.execute("ALTER TABLE user_filters ADD COLUMN auto_booking INTEGER DEFAULT 0")
+            except sqlite3.OperationalError:
+                # Column already exists, ignore
+                pass
+            
+            # Add filter_id column to bookings if it doesn't exist (migration)
+            try:
+                cursor.execute("ALTER TABLE bookings ADD COLUMN filter_id INTEGER")
+            except sqlite3.OperationalError:
+                # Column already exists, ignore
+                pass
+            
+            # Add is_auto_booked column to bookings if it doesn't exist (migration)
+            try:
+                cursor.execute("ALTER TABLE bookings ADD COLUMN is_auto_booked INTEGER DEFAULT 0")
+            except sqlite3.OperationalError:
+                # Column already exists, ignore
+                pass
             
             conn.commit()
             conn.close()
@@ -262,81 +287,6 @@ class Database:
             logger.error(f"Error getting filter: {e}", extra={'user_id': user_id})
             return None
     
-    # Available classes operations
-    def add_available_class(self, available_class: AvailableClass) -> bool:
-        """Add or update available class."""
-        try:
-            conn = self.get_connection()
-            cursor = conn.cursor()
-            cursor.execute('''
-                INSERT OR REPLACE INTO available_classes 
-                (user_id, class_id, title, gym_name, trainer_name, activity_type, 
-                 start_time, end_time, available_spots, notified_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (available_class.user_id, available_class.class_id, available_class.title,
-                  available_class.gym_name, available_class.trainer_name, available_class.activity_type,
-                  available_class.start_time, available_class.end_time, available_class.available_spots,
-                  available_class.notified_at, datetime.now()))
-            conn.commit()
-            conn.close()
-            logger.info(f"Available class added", extra={'user_id': available_class.user_id})
-            return True
-        except Exception as e:
-            logger.error(f"Error adding available class: {e}", extra={'user_id': available_class.user_id})
-            return False
-    
-    def mark_class_notified(self, user_id: int, class_id: str) -> bool:
-        """Mark class as notified."""
-        try:
-            conn = self.get_connection()
-            cursor = conn.cursor()
-            cursor.execute('''
-                UPDATE available_classes 
-                SET notified_at = ?, updated_at = ?
-                WHERE user_id = ? AND class_id = ?
-            ''', (datetime.now(), datetime.now(), user_id, class_id))
-            conn.commit()
-            conn.close()
-            logger.info(f"Class marked as notified", extra={'user_id': user_id})
-            return True
-        except Exception as e:
-            logger.error(f"Error marking class as notified: {e}", extra={'user_id': user_id})
-            return False
-    
-    def get_unnotified_classes(self, user_id: int) -> List[AvailableClass]:
-        """Get classes that haven't been notified yet."""
-        try:
-            conn = self.get_connection()
-            cursor = conn.cursor()
-            cursor.execute('''
-                SELECT * FROM available_classes 
-                WHERE user_id = ? AND notified_at IS NULL
-            ''', (user_id,))
-            rows = cursor.fetchall()
-            conn.close()
-            
-            classes = []
-            for row in rows:
-                classes.append(AvailableClass(
-                    id=row['id'],
-                    user_id=row['user_id'],
-                    class_id=row['class_id'],
-                    title=row['title'],
-                    gym_name=row['gym_name'],
-                    trainer_name=row['trainer_name'],
-                    activity_type=row['activity_type'],
-                    start_time=datetime.fromisoformat(row['start_time']) if row['start_time'] else None,
-                    end_time=datetime.fromisoformat(row['end_time']) if row['end_time'] else None,
-                    available_spots=row['available_spots'],
-                    notified_at=datetime.fromisoformat(row['notified_at']) if row['notified_at'] else None,
-                    created_at=datetime.fromisoformat(row['created_at']) if row['created_at'] else None,
-                    updated_at=datetime.fromisoformat(row['updated_at']) if row['updated_at'] else None
-                ))
-            return classes
-        except Exception as e:
-            logger.error(f"Error getting unnotified classes: {e}", extra={'user_id': user_id})
-            return []
-    
     # Booking operations
     def add_booking(self, booking: Booking) -> bool:
         """Add or update booking."""
@@ -345,10 +295,11 @@ class Database:
             cursor = conn.cursor()
             cursor.execute('''
                 INSERT OR REPLACE INTO bookings 
-                (user_id, class_id, title, start_time, booked_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?)
+                (user_id, class_id, title, start_time, booked_at, filter_id, is_auto_booked, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ''', (booking.user_id, booking.class_id, booking.title, 
-                  booking.start_time, datetime.now(), datetime.now()))
+                  booking.start_time, datetime.now(), booking.filter_id, 
+                  int(booking.is_auto_booked), datetime.now()))
             conn.commit()
             conn.close()
             logger.info(f"Booking added", extra={'user_id': booking.user_id})
@@ -390,6 +341,10 @@ class Database:
             
             bookings = []
             for row in rows:
+                # Safely extract fields, handling None values
+                filter_id = row['filter_id'] if row['filter_id'] is not None else None
+                is_auto_booked = bool(row['is_auto_booked']) if row['is_auto_booked'] is not None else False
+                
                 bookings.append(Booking(
                     id=row['id'],
                     user_id=row['user_id'],
@@ -398,6 +353,8 @@ class Database:
                     start_time=datetime.fromisoformat(row['start_time']),
                     booked_at=datetime.fromisoformat(row['booked_at']),
                     cancelled_at=datetime.fromisoformat(row['cancelled_at']) if row['cancelled_at'] else None,
+                    filter_id=filter_id,
+                    is_auto_booked=is_auto_booked,
                     created_at=datetime.fromisoformat(row['created_at']),
                     updated_at=datetime.fromisoformat(row['updated_at'])
                 ))
@@ -422,61 +379,21 @@ class Database:
             logger.error(f"Error checking booking: {e}", extra={'user_id': user_id})
             return False
     
-    def mark_class_skipped(self, user_id: int, class_id: str) -> bool:
-        """Mark class as skipped (not interested) to avoid showing it again."""
-        try:
-            conn = self.get_connection()
-            cursor = conn.cursor()
-            
-            # Check if class already exists in available_classes
-            cursor.execute('''
-                SELECT id FROM available_classes 
-                WHERE user_id = ? AND class_id = ?
-            ''', (user_id, class_id))
-            
-            existing = cursor.fetchone()
-            
-            if existing:
-                # Update existing record to mark as skipped
-                cursor.execute('''
-                    UPDATE available_classes 
-                    SET skipped = 1, updated_at = datetime('now')
-                    WHERE user_id = ? AND class_id = ?
-                ''', (user_id, class_id))
-            else:
-                # Insert minimal record if not exists
-                cursor.execute('''
-                    INSERT INTO available_classes 
-                    (user_id, class_id, title, skipped, created_at, updated_at)
-                    VALUES (?, ?, ?, 1, datetime('now'), datetime('now'))
-                ''', (user_id, class_id, "Skipped Class"))
-            
-            conn.commit()
-            conn.close()
-            logger.info(f"Marked class {class_id} as skipped for user", 
-                       extra={'user_id': user_id})
-            return True
-        except Exception as e:
-            logger.error(f"Error marking class as skipped: {e}", 
-                        extra={'user_id': user_id})
-            return False
-    
-    def is_class_skipped(self, user_id: int, class_id: str) -> bool:
-        """Check if class is marked as skipped."""
+    def count_filter_bookings(self, user_id: int, filter_id: int) -> int:
+        """Count active bookings for a specific filter."""
         try:
             conn = self.get_connection()
             cursor = conn.cursor()
             cursor.execute('''
-                SELECT id FROM available_classes 
-                WHERE user_id = ? AND class_id = ? AND skipped = 1
-            ''', (user_id, class_id))
+                SELECT COUNT(*) as count FROM bookings 
+                WHERE user_id = ? AND filter_id = ? AND cancelled_at IS NULL
+            ''', (user_id, filter_id))
             result = cursor.fetchone()
             conn.close()
-            return result is not None
+            return result['count'] if result else 0
         except Exception as e:
-            logger.error(f"Error checking if class skipped: {e}", 
-                        extra={'user_id': user_id})
-            return False
+            logger.error(f"Error counting filter bookings: {e}", extra={'user_id': user_id})
+            return 0
     
     # ==================== Filter Management ====================
     
@@ -505,8 +422,8 @@ class Database:
             cursor.execute('''
                 INSERT INTO user_filters 
                 (user_id, club_id, club_name, zone_id, zone_name, timetable_id, timetable_name, 
-                 category_id, category_name, trainer_id, trainer_name, time_from, time_to, weekdays)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 category_id, category_name, trainer_id, trainer_name, time_from, time_to, weekdays, auto_booking)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
                 user_filter.user_id,
                 user_filter.club_id,
@@ -521,12 +438,13 @@ class Database:
                 user_filter.trainer_name,
                 user_filter.time_from,
                 user_filter.time_to,
-                user_filter.weekdays
+                user_filter.weekdays,
+                1 if user_filter.auto_booking else 0
             ))
             
             conn.commit()
             conn.close()
-            logger.info(f"Filter added for user {user_filter.user_id} (total: {filter_count + 1})", 
+            logger.info(f"Filter added for user {user_filter.user_id} (total: {filter_count + 1}, auto_booking: {user_filter.auto_booking})", 
                        extra={'user_id': user_filter.user_id})
             return True
         except Exception as e:
@@ -606,6 +524,7 @@ class Database:
                     time_from=row['time_from'],
                     time_to=row['time_to'],
                     weekdays=row['weekdays'],
+                    auto_booking=bool(row['auto_booking']),
                     created_at=datetime.fromisoformat(row['created_at']) if row['created_at'] else None,
                     updated_at=datetime.fromisoformat(row['updated_at']) if row['updated_at'] else None
                 ))
@@ -643,6 +562,25 @@ class Database:
             return True
         except Exception as e:
             logger.error(f"Error deleting filter: {e}", extra={'user_id': user_id})
+            return False
+    
+    def update_filter_auto_booking(self, filter_id: int, auto_booking: bool, user_id: int) -> bool:
+        """Update auto-booking setting for a filter."""
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            cursor.execute('''
+                UPDATE user_filters
+                SET auto_booking = ?, updated_at = ?
+                WHERE id = ? AND user_id = ?
+            ''', (1 if auto_booking else 0, datetime.now(), filter_id, user_id))
+            conn.commit()
+            conn.close()
+            logger.info(f"Updated auto-booking for filter {filter_id}: {auto_booking}", 
+                       extra={'user_id': user_id})
+            return True
+        except Exception as e:
+            logger.error(f"Error updating filter auto-booking: {e}", extra={'user_id': user_id})
             return False
     
     # ==================== Filter Catalog (Cache) ====================

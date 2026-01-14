@@ -53,30 +53,7 @@ class UserFilter:
     time_from: Optional[str] = None            # "07:00" (optional)
     time_to: Optional[str] = None              # "20:00" (optional)
     weekdays: Optional[str] = None             # "1,2,3,4,5" (Monday=1...Sunday=7) - optional, comma-separated
-    created_at: datetime = None
-    updated_at: datetime = None
-    
-    def __post_init__(self):
-        if self.created_at is None:
-            self.created_at = datetime.now()
-        if self.updated_at is None:
-            self.updated_at = datetime.now()
-
-
-@dataclass
-class AvailableClass:
-    """Available class model."""
-    id: Optional[int] = None
-    user_id: int = None
-    class_id: str = None  # Unique class ID from API
-    title: str = None
-    gym_name: str = None
-    trainer_name: str = None
-    activity_type: str = None
-    start_time: datetime = None
-    end_time: datetime = None
-    available_spots: int = None
-    notified_at: Optional[datetime] = None  # When user was notified
+    auto_booking: bool = False                 # Enable automatic booking for this filter
     created_at: datetime = None
     updated_at: datetime = None
     
@@ -122,6 +99,8 @@ class Booking:
     start_time: datetime = None
     booked_at: datetime = None
     cancelled_at: Optional[datetime] = None
+    filter_id: Optional[int] = None  # Which filter triggered this booking (if auto-booked)
+    is_auto_booked: bool = False  # Whether this was an automatic booking
     created_at: datetime = None
     updated_at: datetime = None
     
