@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.database.models import User, UserFilter, AvailableClass, Booking
+from src.database.models import User, UserFilter, Booking
 
 
 class TestUserModel(unittest.TestCase):
@@ -116,33 +116,6 @@ class TestUserFilter(unittest.TestCase):
         )
         
         self.assertFalse(user_filter.auto_booking)
-
-
-class TestAvailableClass(unittest.TestCase):
-    """Test AvailableClass model."""
-    
-    def test_available_class_creation(self):
-        """Test creating an available class."""
-        start_time = datetime.now() + timedelta(days=1)
-        end_time = start_time + timedelta(hours=1)
-        
-        available_class = AvailableClass(
-            user_id=123456,
-            class_id="1091041",
-            title="Trening Cross",
-            gym_name="Zdrofit Bemowo Dywizjonu 303",
-            trainer_name="MARCIN URBAN",
-            activity_type="Trening Cross",
-            start_time=start_time,
-            end_time=end_time,
-            available_spots=5
-        )
-        
-        self.assertEqual(available_class.user_id, 123456)
-        self.assertEqual(available_class.class_id, "1091041")
-        self.assertEqual(available_class.title, "Trening Cross")
-        self.assertEqual(available_class.available_spots, 5)
-        self.assertIsNotNone(available_class.created_at)
 
 
 class TestBooking(unittest.TestCase):

@@ -13,7 +13,7 @@ from unittest.mock import Mock, patch, MagicMock
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.database.db import Database
-from src.database.models import User, UserFilter, Booking, AvailableClass
+from src.database.models import User, UserFilter, Booking
 
 
 class TestAutoBookingModel(unittest.TestCase):

@@ -1,6 +1,7 @@
 #!/usr/bin/env python
-"""Test password encryption/decryption."""
+"""Unit tests for password encryption/decryption."""
 
+import unittest
 import sys
 import os
 
@@ -10,44 +11,95 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from src.utils.crypto import PasswordEncryptor
 
 
-def test_encryption_decryption():
-    """Test encryption/decryption functionality."""
-    test_password = "MySecurePassword123!"
-    print(f"Original password: {test_password}")
-
-    # Encrypt
-    encrypted = PasswordEncryptor.encrypt(test_password)
-    print(f"Encrypted: {encrypted}")
-
-    # Decrypt
-    decrypted = PasswordEncryptor.decrypt(encrypted)
-    print(f"Decrypted: {decrypted}")
-
-    # Verify
-    assert decrypted == test_password, f"Decryption failed! Expected {test_password}, got {decrypted}"
-    print("[PASS] Encryption/decryption works correctly!")
-    return True
-
-
-def test_empty_password():
-    """Test handling empty password."""
-    empty_encrypted = PasswordEncryptor.encrypt("")
-    empty_decrypted = PasswordEncryptor.decrypt(empty_encrypted)
-    assert empty_decrypted == "", f"Empty password handling failed!"
-    print("[PASS] Empty password handling works!")
-    return True
+class TestPasswordEncryption(unittest.TestCase):
+    """Test password encryption and decryption."""
+    
+    def test_encryption_decryption_basic(self):
+        """Test basic encryption/decryption functionality."""
+        original_password = "MySecurePassword123!"
+        
+        # Encrypt
+        encrypted = PasswordEncryptor.encrypt(original_password)
+        self.assertIsNotNone(encrypted)
+        self.assertNotEqual(encrypted, original_password)
+        
+        # Decrypt
+        decrypted = PasswordEncryptor.decrypt(encrypted)
+        self.assertEqual(decrypted, original_password)
+    
+    def test_encryption_decryption_empty_password(self):
+        """Test encryption/decryption of empty password."""
+        original_password = ""
+        
+        encrypted = PasswordEncryptor.encrypt(original_password)
+        decrypted = PasswordEncryptor.decrypt(encrypted)
+        self.assertEqual(decrypted, original_password)
+    
+    def test_encryption_decryption_with_spaces(self):
+        """Test encryption/decryption with spaces."""
+        original_password = "Pass word with spaces 123"
+        
+        encrypted = PasswordEncryptor.encrypt(original_password)
+        decrypted = PasswordEncryptor.decrypt(encrypted)
+        self.assertEqual(decrypted, original_password)
+    
+    def test_encryption_decryption_special_chars(self):
+        """Test encryption/decryption with special characters."""
+        original_password = "P@ssw0rd!#$%^&*()"
+        
+        encrypted = PasswordEncryptor.encrypt(original_password)
+        decrypted = PasswordEncryptor.decrypt(encrypted)
+        self.assertEqual(decrypted, original_password)
+    
+    def test_encryption_decryption_unicode(self):
+        """Test encryption/decryption with unicode characters."""
+        original_password = "пароль123密碼"
+        
+        encrypted = PasswordEncryptor.encrypt(original_password)
+        decrypted = PasswordEncryptor.decrypt(encrypted)
+        self.assertEqual(decrypted, original_password)
+    
+    def test_encryption_produces_different_output(self):
+        """Test that encrypted password is different from original."""
+        original_password = "TestPassword123"
+        
+        encrypted = PasswordEncryptor.encrypt(original_password)
+        self.assertNotEqual(encrypted, original_password)
+    
+    def test_encryption_consistency(self):
+        """Test that same password always encrypts/decrypts correctly."""
+        original_password = "ConsistentPassword"
+        
+        # Encrypt and decrypt multiple times
+        for _ in range(5):
+            encrypted = PasswordEncryptor.encrypt(original_password)
+            decrypted = PasswordEncryptor.decrypt(encrypted)
+            self.assertEqual(decrypted, original_password)
+    
+    def test_encryption_long_password(self):
+        """Test encryption/decryption of long password."""
+        original_password = "x" * 200  # Maximum allowed length
+        
+        encrypted = PasswordEncryptor.encrypt(original_password)
+        decrypted = PasswordEncryptor.decrypt(encrypted)
+        self.assertEqual(decrypted, original_password)
+    
+    def test_encryption_single_char_password(self):
+        """Test encryption/decryption of single character password."""
+        original_password = "a"
+        
+        encrypted = PasswordEncryptor.encrypt(original_password)
+        decrypted = PasswordEncryptor.decrypt(encrypted)
+        self.assertEqual(decrypted, original_password)
+    
+    def test_encryption_newline_in_password(self):
+        """Test encryption/decryption with newlines."""
+        original_password = "Line1\nLine2\nLine3"
+        
+        encrypted = PasswordEncryptor.encrypt(original_password)
+        decrypted = PasswordEncryptor.decrypt(encrypted)
+        self.assertEqual(decrypted, original_password)
 
 
 if __name__ == "__main__":
-    print("\n[INFO] Testing Encryption/Decryption")
-    print("=" * 60)
-    
-    try:
-        test_encryption_decryption()
-        test_empty_password()
-        print("\n[PASS] All crypto tests passed!")
-    except Exception as e:
-        print(f"\n[FAIL] Test failed: {e}")
-        import traceback
-        traceback.print_exc()
-        sys.exit(1)
+    unittest.main()
