@@ -47,13 +47,13 @@ CronTrigger(minute="0", hour="*/2") - every 2h
 
 ```bash
 # Start the bot
-docker-compose up -d
+sudo docker compose build --no-cache && sudo docker compose up -d
 
 # View logs
-docker-compose logs -f zdrofit-bot
+sudo docker compose logs -f zdrofit-bot
 
 # Stop the bot
-docker-compose down
+docker compose down
 ```
 
 ### Manual Docker Build
