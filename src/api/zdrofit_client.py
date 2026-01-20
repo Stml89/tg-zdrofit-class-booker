@@ -447,6 +447,7 @@ class ZdrofitAPIClient:
         - timetable_id: filter by class type
         - trainer_id: filter by trainer (optional)
         - time_from, time_to: filter by time range (optional)
+        - weekdays: filter by days of week (optional, "1,2,3,4,5" format where 1=Monday, 7=Sunday)
         """
         if not user_filter:
             # No filter provided, return all available classes
@@ -481,6 +482,13 @@ class ZdrofitAPIClient:
                 logger.debug(f"Filtered by trainer {user_filter.trainer_name}: {before_count} -> {len(filtered_classes)}", 
                            extra={'user_id': user_id or 'unknown'})
             
+            # Filter by weekdays (days of week)
+            if user_filter.weekdays:
+                before_count = len(filtered_classes)
+                filtered_classes = self._filter_by_weekdays(filtered_classes, user_filter.weekdays)
+                logger.debug(f"Filtered by weekdays {user_filter.weekdays}: {before_count} -> {len(filtered_classes)}", 
+                           extra={'user_id': user_id or 'unknown'})
+            
             # Filter by time range
             if user_filter.time_from or user_filter.time_to:
                 before_count = len(filtered_classes)
@@ -495,6 +503,55 @@ class ZdrofitAPIClient:
         except Exception as e:
             logger.error(f"Error filtering classes: {str(e)}", extra={'user_id': user_id or 'unknown'})
             return self.get_available_classes(user_id=user_id)
+    
+    def _filter_by_weekdays(self, classes: List[Dict], weekdays: str) -> List[Dict]:
+        """
+        Filter classes by days of week.
+        
+        Args:
+            classes: List of classes to filter
+            weekdays: Comma-separated string of weekday numbers (1=Monday, 2=Tuesday, ..., 7=Sunday)
+                     Example: "1,2,3,4,5" for Monday-Friday
+        
+        Returns:
+            Filtered list of classes matching the specified weekdays
+        """
+        if not weekdays:
+            return classes
+        
+        try:
+            # Parse weekdays string to set of integers
+            allowed_weekdays = set(int(day.strip()) for day in weekdays.split(',') if day.strip())
+            
+            if not allowed_weekdays:
+                return classes
+            
+            filtered = []
+            for cls in classes:
+                start_time_str = cls.get('start_time', '')
+                if start_time_str:
+                    try:
+                        # Parse start time and get weekday
+                        start_time = datetime.fromisoformat(start_time_str.replace('Z', '+00:00'))
+                        # Python's weekday(): 0=Monday, 1=Tuesday, ..., 6=Sunday
+                        # Our format: 1=Monday, 2=Tuesday, ..., 7=Sunday
+                        class_weekday = start_time.weekday() + 1
+                        
+                        # Check if class is on allowed weekday
+                        if class_weekday in allowed_weekdays:
+                            filtered.append(cls)
+                    except Exception as e:
+                        logger.debug(f"Error parsing date for weekday filter: {e}")
+                        # If can't parse, exclude it to be safe
+                        continue
+                else:
+                    # No start time - exclude it
+                    continue
+            
+            return filtered
+        except Exception as e:
+            logger.error(f"Error in weekday filtering: {e}")
+            return classes  # Return all classes if filtering fails
     
     def _filter_by_time(self, classes: List[Dict], time_from: str = None, time_to: str = None) -> List[Dict]:
         """Filter classes by time range (HH:MM format)."""
