@@ -145,8 +145,8 @@ src/
 
 ## Future Plans
 
-- [ ] Support another fitness clubs
-- [ ] Implement auto apply to a class
+- [x] Support another fitness clubs
+- [x] Implement auto apply to a class
 - [ ] Web interface
 - [ ] Export to Google Calendar
 - [ ] Usage statistics
