@@ -281,8 +281,8 @@ class TestAutoBookingDatabase(unittest.TestCase):
         filters = self.db.get_all_filters(999999)
         self.assertFalse(filters[0].auto_booking)
     
-    def test_auto_booking_limit_enforcement(self):
-        """Test that 3-booking limit is enforced."""
+    def test_auto_booking_count_tracking(self):
+        """Test that booking count tracking works correctly."""
         # Save a filter
         user_filter = UserFilter(
             user_id=999999,
@@ -295,8 +295,8 @@ class TestAutoBookingDatabase(unittest.TestCase):
         self.db.add_filter(user_filter)
         filter_id = self.db.get_all_filters(999999)[0].id
         
-        # Add 3 bookings (at limit)
-        for i in range(3):
+        # Add multiple bookings
+        for i in range(5):
             booking = Booking(
                 user_id=999999,
                 class_id=f"class_{i}",
@@ -307,13 +307,9 @@ class TestAutoBookingDatabase(unittest.TestCase):
             )
             self.db.add_booking(booking)
         
-        # Count should be exactly 3
+        # Count should be exactly 5 (no limit)
         count = self.db.count_filter_bookings(999999, filter_id)
-        self.assertEqual(count, 3)
-        
-        # Simulate scheduler check - should not auto-book if count >= 3
-        should_auto_book = count < 3
-        self.assertFalse(should_auto_book)
+        self.assertEqual(count, 5)
     
     def test_multiple_filters_independent_counts(self):
         """Test that booking counts are independent per filter."""
@@ -376,40 +372,18 @@ class TestAutoBookingDatabase(unittest.TestCase):
 class TestAutoBookingSchedulerLogic(unittest.TestCase):
     """Test scheduler auto-booking decision logic."""
     
-    def test_auto_booking_decision_enabled_under_limit(self):
-        """Test auto-booking when enabled and under limit."""
+    def test_auto_booking_decision_enabled(self):
+        """Test auto-booking when enabled."""
         auto_booking_enabled = True
-        booking_count = 2
-        limit = 3
         
-        should_auto_book = auto_booking_enabled and booking_count < limit
+        should_auto_book = auto_booking_enabled
         self.assertTrue(should_auto_book)
-    
-    def test_auto_booking_decision_enabled_at_limit(self):
-        """Test no auto-booking when at limit."""
-        auto_booking_enabled = True
-        booking_count = 3
-        limit = 3
-        
-        should_auto_book = auto_booking_enabled and booking_count < limit
-        self.assertFalse(should_auto_book)
     
     def test_auto_booking_decision_disabled(self):
         """Test no auto-booking when disabled."""
         auto_booking_enabled = False
-        booking_count = 1
-        limit = 3
         
-        should_auto_book = auto_booking_enabled and booking_count < limit
-        self.assertFalse(should_auto_book)
-    
-    def test_auto_booking_decision_over_limit(self):
-        """Test no auto-booking when over limit."""
-        auto_booking_enabled = True
-        booking_count = 5
-        limit = 3
-        
-        should_auto_book = auto_booking_enabled and booking_count < limit
+        should_auto_book = auto_booking_enabled
         self.assertFalse(should_auto_book)
     
     @patch('src.scheduler.class_scheduler.db')
