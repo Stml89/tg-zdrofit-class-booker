@@ -173,42 +173,37 @@ class ClassCheckScheduler:
                 auto_booked = False
                 for user_filter in matching_filters:
                     if user_filter.auto_booking:
-                        # Check booking count for this filter
-                        booking_count = db.count_filter_bookings(user_id, user_filter.id)
-                        if booking_count < 3:
-                            # Attempt to auto-book
-                            logger.info(f"Attempting to auto-book class {class_id} for filter {user_filter.id}", 
-                                       extra={'user_id': user_id})
-                            try:
-                                # Attempt booking through API
-                                if client.book_class(class_id, user_id):
-                                    # Save booking to database with auto_booking flag
-                                    from src.database.models import Booking
-                                    booking = Booking(
-                                        user_id=user_id,
-                                        class_id=class_id,
-                                        title=class_data.get("title"),
-                                        start_time=class_data.get("start_time"),
-                                        filter_id=user_filter.id,
-                                        is_auto_booked=True
-                                    )
-                                    db.add_booking(booking)
-                                    auto_bookings_made += 1
-                                    auto_booked = True
-                                    logger.info(f"Successfully auto-booked class {class_id}", extra={'user_id': user_id})
-                                    # Send confirmation notification
-                                    await self.notification_sender.send_auto_booking_confirmation(
-                                        user_id, class_data, user_filter
-                                    )
-                                    break  # Don't try other filters since we already booked
-                                else:
-                                    logger.warning(f"API booking failed for class {class_id}", extra={'user_id': user_id})
-                            except Exception as e:
-                                logger.warning(f"Error auto-booking class {class_id}: {e}", extra={'user_id': user_id})
-                        else:
-                            logger.info(f"Filter {user_filter.id} already has {booking_count} bookings (max 3), " + 
-                                       f"won't auto-book class {class_id}", extra={'user_id': user_id})
-                
+
+                        # Attempt to auto-book
+                        logger.info(f"Attempting to auto-book class {class_id} for filter {user_filter.id}", 
+                                    extra={'user_id': user_id})
+                        try:
+                            # Attempt booking through API
+                            if client.book_class(class_id, user_id):
+                                # Save booking to database with auto_booking flag
+                                from src.database.models import Booking
+                                booking = Booking(
+                                    user_id=user_id,
+                                    class_id=class_id,
+                                    title=class_data.get("title"),
+                                    start_time=class_data.get("start_time"),
+                                    filter_id=user_filter.id,
+                                    is_auto_booked=True
+                                )
+                                db.add_booking(booking)
+                                auto_bookings_made += 1
+                                auto_booked = True
+                                logger.info(f"Successfully auto-booked class {class_id}", extra={'user_id': user_id})
+                                # Send confirmation notification
+                                await self.notification_sender.send_auto_booking_confirmation(
+                                    user_id, class_data, user_filter
+                                )
+                                break  # Don't try other filters since we already booked
+                            else:
+                                logger.warning(f"API booking failed for class {class_id}", extra={'user_id': user_id})
+                        except Exception as e:
+                            logger.warning(f"Error auto-booking class {class_id}: {e}", extra={'user_id': user_id})
+
                 # If not auto-booked, send notification for manual booking
                 if not auto_booked:
                     logger.info(f"Sending notification for class {class_id}: {class_data.get('title')}", 
