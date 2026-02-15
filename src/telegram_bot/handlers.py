@@ -1118,8 +1118,7 @@ class BotHandlers:
             
             await query.edit_message_text(
                 "Enable automatic booking for this filter?\n\n"
-                "When enabled, bot will automatically book available classes matching this filter.\n"
-                "⚠️ Maximum 3 automatic bookings per filter.",
+                "When enabled, bot will automatically book available classes matching this filter.",
                 reply_markup=reply_markup
             )
         
