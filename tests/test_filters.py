@@ -232,10 +232,10 @@ def test_auto_booking_filter_creation():
         return False
 
 
-def test_auto_booking_limit():
-    """Test that auto-booking limit is enforced (max 3 bookings per filter)."""
+def test_auto_booking_count():
+    """Test that auto-booking count tracking works correctly."""
     print("\n" + "=" * 60)
-    print("TEST 5: Database - Auto-Booking Limit Enforcement")
+    print("TEST 5: Database - Auto-Booking Count Tracking")
     print("=" * 60)
     
     try:
@@ -257,11 +257,11 @@ def test_auto_booking_limit():
         db.add_filter(test_filter)
         filter_id = db.get_all_filters(999997)[0].id
         
-        # Add 3 bookings (at limit)
-        for i in range(3):
+        # Add multiple bookings (no limit)
+        for i in range(5):
             booking = Booking(
                 user_id=999997,
-                class_id=f"class_limit_{i}",
+                class_id=f"class_count_{i}",
                 title="Pilates Class",
                 start_time=datetime.now() + timedelta(days=i),
                 filter_id=filter_id,
@@ -271,18 +271,10 @@ def test_auto_booking_limit():
         
         # Count bookings
         count = db.count_filter_bookings(999997, filter_id)
-        if count == 3:
-            print("[PASS] Booking count is 3 (at limit)")
+        if count == 5:
+            print("[PASS] Booking count is 5 (no limit enforced)")
         else:
-            print(f"[FAIL] Expected 3 bookings, got {count}")
-            return False
-        
-        # Check that we should NOT auto-book anymore
-        should_auto_book = count < 3
-        if not should_auto_book:
-            print("[PASS] Auto-booking would be disabled at limit (correct)")
-        else:
-            print("[FAIL] Auto-booking should be disabled at limit")
+            print(f"[FAIL] Expected 5 bookings, got {count}")
             return False
         
         # Clean up
@@ -388,7 +380,6 @@ if __name__ == "__main__":
     # Database tests don't need credentials
     results.append(("DB - Filter Operations", test_db_filter_operations()))
     results.append(("DB - Auto-Booking Filter Creation", test_auto_booking_filter_creation()))
-    results.append(("DB - Auto-Booking Limit Enforcement", test_auto_booking_limit()))
     results.append(("DB - Update Auto-Booking Flag", test_auto_booking_update()))
     
     # Summary
