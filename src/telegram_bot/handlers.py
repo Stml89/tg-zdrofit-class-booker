@@ -318,6 +318,7 @@ class BotHandlers:
         keyboard = [
             [InlineKeyboardButton("➕ Set Filter", callback_data="filter_menu_set")],
             [InlineKeyboardButton("👁️ View Filter", callback_data="filter_menu_view")],
+            [InlineKeyboardButton("⏸️ Pause Filter", callback_data="filter_menu_pause")],
             [InlineKeyboardButton("🗑️ Delete Filter", callback_data="filter_menu_delete")],
             [InlineKeyboardButton("Cancel", callback_data="filter_cancel")]
         ]
@@ -442,6 +443,10 @@ class BotHandlers:
                     auto_booking_status = "🤖 ENABLED" if user_filter.auto_booking else "🔔 Disabled"
                     message += f"  Auto-booking: {auto_booking_status}\n"
                     
+                    # Display pause status
+                    if user_filter.is_paused:
+                        message += f"  ⏸️ <b>PAUSED</b> until {user_filter.paused_until.strftime('%d.%m.%Y %H:%M')}\n"
+                    
                     message += "\n"
             
             keyboard = [
@@ -491,6 +496,50 @@ class BotHandlers:
             )
             return
         
+        elif query.data == "filter_menu_pause":
+            # Show filters to pause/unpause
+            user_filters = db.get_all_filters(user_id)
+            
+            if not user_filters:
+                message = "❌ You don't have any filters to pause."
+                keyboard = [
+                    [InlineKeyboardButton("Back to Menu", callback_data="filter_menu_back")],
+                    [InlineKeyboardButton("Cancel", callback_data="filter_cancel")]
+                ]
+            else:
+                message = "<b>Select filter to pause/unpause:</b>\n\n"
+                keyboard = []
+                
+                for idx, user_filter in enumerate(user_filters, 1):
+                    if user_filter.is_paused:
+                        pause_info = f" ⏸️ paused until {user_filter.paused_until.strftime('%d.%m.%Y %H:%M')}"
+                        filter_desc = f"{idx}. {user_filter.club_name} - {user_filter.timetable_name}{pause_info}"
+                        keyboard.append([
+                            InlineKeyboardButton(
+                                f"▶️ Unpause: {user_filter.club_name}",
+                                callback_data=f"filter_unpause_{user_filter.id}"
+                            )
+                        ])
+                    else:
+                        filter_desc = f"{idx}. {user_filter.club_name} - {user_filter.timetable_name}"
+                        keyboard.append([
+                            InlineKeyboardButton(
+                                f"⏸️ Pause: {filter_desc}",
+                                callback_data=f"filter_pause_{user_filter.id}"
+                            )
+                        ])
+                
+                keyboard.append([InlineKeyboardButton("Cancel", callback_data="filter_menu_back")])
+            
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            await query.edit_message_text(
+                message,
+                parse_mode=ParseMode.HTML,
+                reply_markup=reply_markup
+            )
+            return
+        
         elif query.data == "filter_menu_back":
             # Go back to main menu
             context.user_data['filter_step'] = 'menu'
@@ -498,6 +547,7 @@ class BotHandlers:
             keyboard = [
                 [InlineKeyboardButton("➕ Set Filter", callback_data="filter_menu_set")],
                 [InlineKeyboardButton("👁️ View Filter", callback_data="filter_menu_view")],
+                [InlineKeyboardButton("⏸️ Pause Filter", callback_data="filter_menu_pause")],
                 [InlineKeyboardButton("🗑️ Delete Filter", callback_data="filter_menu_delete")],
                 [InlineKeyboardButton("Cancel", callback_data="filter_cancel")]
             ]
@@ -525,6 +575,104 @@ class BotHandlers:
                 message += "\n\n<b>Remaining Filters:</b>\n"
                 for idx, uf in enumerate(user_filters, 1):
                     message += f"{idx}. {uf.club_name} - {uf.timetable_name}\n"
+            
+            keyboard = [
+                [InlineKeyboardButton("Back to Menu", callback_data="filter_menu_back")],
+                [InlineKeyboardButton("Cancel", callback_data="filter_cancel")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            await query.edit_message_text(
+                message,
+                parse_mode=ParseMode.HTML,
+                reply_markup=reply_markup
+            )
+            return
+        
+        # Apply pause with selected duration (must be checked BEFORE filter_pause_ to avoid collision)
+        if query.data.startswith("filter_pause_duration_"):
+            from datetime import timedelta
+            days = int(query.data.split('_')[3])
+            filter_id = context.user_data.get('pause_filter_id')
+            
+            if not filter_id:
+                await query.edit_message_text("Error: filter not found. Please try again.")
+                return
+            
+            paused_until = datetime.now() + timedelta(days=days)
+            
+            if db.pause_filter(filter_id, user_id, paused_until):
+                # Get filter details for the message
+                user_filters = db.get_all_filters(user_id)
+                paused_filter = next((f for f in user_filters if f.id == filter_id), None)
+                filter_name = f"{paused_filter.club_name} - {paused_filter.timetable_name}" if paused_filter else f"Filter #{filter_id}"
+                
+                message = (
+                    f"⏸️ <b>Filter paused!</b>\n\n"
+                    f"<b>{filter_name}</b>\n"
+                    f"Paused for: {days} day{'s' if days > 1 else ''}\n"
+                    f"Resumes: {paused_until.strftime('%d.%m.%Y %H:%M')}\n\n"
+                    f"<i>The bot won't notify or book classes for this filter until the pause expires.</i>"
+                )
+                logger.info(f"Filter {filter_id} paused for {days} days until {paused_until}", extra={'user_id': user_id})
+            else:
+                message = "Error pausing filter. Please try again."
+            
+            context.user_data.pop('pause_filter_id', None)
+            
+            keyboard = [
+                [InlineKeyboardButton("Back to Menu", callback_data="filter_menu_back")],
+                [InlineKeyboardButton("Cancel", callback_data="filter_cancel")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            await query.edit_message_text(
+                message,
+                parse_mode=ParseMode.HTML,
+                reply_markup=reply_markup
+            )
+            return
+        
+        # Pause specific filter - show duration selection
+        if query.data.startswith("filter_pause_"):
+            filter_id = int(query.data.split('_')[2])
+            context.user_data['pause_filter_id'] = filter_id
+            
+            keyboard = [
+                [InlineKeyboardButton("1 day", callback_data="filter_pause_duration_1")],
+                [InlineKeyboardButton("3 days", callback_data="filter_pause_duration_3")],
+                [InlineKeyboardButton("7 days", callback_data="filter_pause_duration_7")],
+                [InlineKeyboardButton("14 days", callback_data="filter_pause_duration_14")],
+                [InlineKeyboardButton("21 days", callback_data="filter_pause_duration_21")],
+                [InlineKeyboardButton("Cancel", callback_data="filter_menu_pause")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            await query.edit_message_text(
+                "<b>Select pause duration:</b>\n\n"
+                "Filter will be paused and won't notify or auto-book classes during this period.",
+                parse_mode=ParseMode.HTML,
+                reply_markup=reply_markup
+            )
+            return
+        
+        # Unpause specific filter
+        if query.data.startswith("filter_unpause_"):
+            filter_id = int(query.data.split('_')[2])
+            
+            if db.unpause_filter(filter_id, user_id):
+                user_filters = db.get_all_filters(user_id)
+                unpaused_filter = next((f for f in user_filters if f.id == filter_id), None)
+                filter_name = f"{unpaused_filter.club_name} - {unpaused_filter.timetable_name}" if unpaused_filter else f"Filter #{filter_id}"
+                
+                message = (
+                    f"▶️ <b>Filter unpaused!</b>\n\n"
+                    f"<b>{filter_name}</b>\n\n"
+                    f"<i>The bot will now resume notifications and auto-booking for this filter.</i>"
+                )
+                logger.info(f"Filter {filter_id} manually unpaused", extra={'user_id': user_id})
+            else:
+                message = "Error unpausing filter. Please try again."
             
             keyboard = [
                 [InlineKeyboardButton("Back to Menu", callback_data="filter_menu_back")],

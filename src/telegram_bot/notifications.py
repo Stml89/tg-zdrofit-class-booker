@@ -230,3 +230,42 @@ class NotificationSender:
             
         except Exception as e:
             logger.error(f"Error sending error notification: {e}", extra={'user_id': user_id})
+    
+    async def send_filter_unpaused_notification(self, user_id: int, user_filter):
+        """Send notification that a filter's pause has expired and it's active again."""
+        try:
+            filter_name = f"{user_filter.club_name} - {user_filter.timetable_name}"
+            
+            details = []
+            if user_filter.trainer_name:
+                details.append(f"Trainer: {user_filter.trainer_name}")
+            if user_filter.time_from or user_filter.time_to:
+                details.append(f"Time: {user_filter.time_from or '00:00'} - {user_filter.time_to or '23:59'}")
+            if user_filter.weekdays:
+                day_names = {'1': 'Mon', '2': 'Tue', '3': 'Wed', '4': 'Thu', '5': 'Fri', '6': 'Sat', '7': 'Sun'}
+                days = [day_names.get(d, d) for d in user_filter.weekdays.split(',')]
+                details.append(f"Days: {', '.join(days)}")
+            
+            details_str = "\n".join(details)
+            if details_str:
+                details_str = f"\n{details_str}"
+            
+            auto_booking_str = "🤖 Auto-booking: ENABLED" if user_filter.auto_booking else "🔔 Auto-booking: Disabled"
+            
+            message = (
+                f"▶️ <b>Filter is active again!</b>\n\n"
+                f"<b>{filter_name}</b>{details_str}\n"
+                f"{auto_booking_str}\n\n"
+                f"<i>The pause has expired. The bot will now resume notifications and auto-booking for this filter.</i>"
+            )
+            
+            await self.bot.send_message(
+                chat_id=user_id,
+                text=message,
+                parse_mode=ParseMode.HTML
+            )
+            
+            logger.info(f"Filter unpause notification sent", extra={'user_id': user_id})
+            
+        except Exception as e:
+            logger.error(f"Error sending filter unpause notification: {e}", extra={'user_id': user_id})
