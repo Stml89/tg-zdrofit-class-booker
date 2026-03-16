@@ -147,6 +147,13 @@ class Database:
                 # Column already exists, ignore
                 pass
             
+            # Add paused_until column to user_filters if it doesn't exist (migration)
+            try:
+                cursor.execute("ALTER TABLE user_filters ADD COLUMN paused_until TIMESTAMP")
+            except sqlite3.OperationalError:
+                # Column already exists, ignore
+                pass
+            
             conn.commit()
             conn.close()
             logger.info("Database initialized successfully")
@@ -467,6 +474,11 @@ class Database:
                 return None
             
             from src.database.models import UserFilter
+            paused_until = None
+            try:
+                paused_until = datetime.fromisoformat(row['paused_until']) if row['paused_until'] else None
+            except (KeyError, ValueError):
+                pass
             return UserFilter(
                 id=row['id'],
                 user_id=row['user_id'],
@@ -483,6 +495,7 @@ class Database:
                 time_from=row['time_from'],
                 time_to=row['time_to'],
                 weekdays=row['weekdays'],
+                paused_until=paused_until,
                 created_at=datetime.fromisoformat(row['created_at']) if row['created_at'] else None,
                 updated_at=datetime.fromisoformat(row['updated_at']) if row['updated_at'] else None
             )
@@ -508,6 +521,11 @@ class Database:
             from src.database.models import UserFilter
             filters = []
             for row in rows:
+                paused_until = None
+                try:
+                    paused_until = datetime.fromisoformat(row['paused_until']) if row['paused_until'] else None
+                except (KeyError, ValueError):
+                    pass
                 filters.append(UserFilter(
                     id=row['id'],
                     user_id=row['user_id'],
@@ -525,6 +543,7 @@ class Database:
                     time_to=row['time_to'],
                     weekdays=row['weekdays'],
                     auto_booking=bool(row['auto_booking']),
+                    paused_until=paused_until,
                     created_at=datetime.fromisoformat(row['created_at']) if row['created_at'] else None,
                     updated_at=datetime.fromisoformat(row['updated_at']) if row['updated_at'] else None
                 ))
@@ -582,6 +601,93 @@ class Database:
         except Exception as e:
             logger.error(f"Error updating filter auto-booking: {e}", extra={'user_id': user_id})
             return False
+    
+    def pause_filter(self, filter_id: int, user_id: int, paused_until: datetime) -> bool:
+        """Pause a filter until specified datetime."""
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            cursor.execute('''
+                UPDATE user_filters
+                SET paused_until = ?, updated_at = ?
+                WHERE id = ? AND user_id = ?
+            ''', (paused_until.isoformat(), datetime.now(), filter_id, user_id))
+            conn.commit()
+            conn.close()
+            logger.info(f"Filter {filter_id} paused until {paused_until}", 
+                       extra={'user_id': user_id})
+            return True
+        except Exception as e:
+            logger.error(f"Error pausing filter: {e}", extra={'user_id': user_id})
+            return False
+    
+    def unpause_filter(self, filter_id: int, user_id: int) -> bool:
+        """Remove pause from a filter."""
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            cursor.execute('''
+                UPDATE user_filters
+                SET paused_until = NULL, updated_at = ?
+                WHERE id = ? AND user_id = ?
+            ''', (datetime.now(), filter_id, user_id))
+            conn.commit()
+            conn.close()
+            logger.info(f"Filter {filter_id} unpaused", 
+                       extra={'user_id': user_id})
+            return True
+        except Exception as e:
+            logger.error(f"Error unpausing filter: {e}", extra={'user_id': user_id})
+            return False
+    
+    def get_expired_paused_filters(self) -> list:
+        """Get all filters whose pause has just expired (paused_until <= now)."""
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT * FROM user_filters 
+                WHERE paused_until IS NOT NULL AND paused_until <= ?
+            ''', (datetime.now().isoformat(),))
+            rows = cursor.fetchall()
+            conn.close()
+            
+            if not rows:
+                return []
+            
+            from src.database.models import UserFilter
+            filters = []
+            for row in rows:
+                paused_until = None
+                try:
+                    paused_until = datetime.fromisoformat(row['paused_until']) if row['paused_until'] else None
+                except (KeyError, ValueError):
+                    pass
+                filters.append(UserFilter(
+                    id=row['id'],
+                    user_id=row['user_id'],
+                    club_id=row['club_id'],
+                    club_name=row['club_name'],
+                    zone_id=row['zone_id'],
+                    zone_name=row['zone_name'],
+                    timetable_id=row['timetable_id'],
+                    timetable_name=row['timetable_name'],
+                    category_id=row['category_id'],
+                    category_name=row['category_name'],
+                    trainer_id=row['trainer_id'],
+                    trainer_name=row['trainer_name'],
+                    time_from=row['time_from'],
+                    time_to=row['time_to'],
+                    weekdays=row['weekdays'],
+                    auto_booking=bool(row['auto_booking']),
+                    paused_until=paused_until,
+                    created_at=datetime.fromisoformat(row['created_at']) if row['created_at'] else None,
+                    updated_at=datetime.fromisoformat(row['updated_at']) if row['updated_at'] else None
+                ))
+            return filters
+        except Exception as e:
+            logger.error(f"Error getting expired paused filters: {e}")
+            return []
     
     # ==================== Filter Catalog (Cache) ====================
     

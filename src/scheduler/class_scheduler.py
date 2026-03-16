@@ -78,6 +78,9 @@ class ClassCheckScheduler:
     
     async def _async_check_classes(self):
         """Async function to check classes for all users."""
+        # Check for expired pauses and notify users
+        await self._check_expired_pauses()
+        
         users = db.get_all_users()
         logger.info(f"Found {len(users)} users to check", extra={'user_id': 'system'})
         
@@ -119,6 +122,11 @@ class ClassCheckScheduler:
             # Get available classes for each filter
             if user_filters:
                 for user_filter in user_filters:
+                    # Skip paused filters
+                    if user_filter.is_paused:
+                        logger.debug(f"Filter {user_filter.id} is paused until {user_filter.paused_until}, skipping", 
+                                    extra={'user_id': user_id})
+                        continue
                     if user_filter.club_id:
                         classes = client.get_classes_by_filter(user_filter, user_id)
                         all_classes.extend(classes)
@@ -222,6 +230,28 @@ class ClassCheckScheduler:
             
         except Exception as e:
             logger.error(f"Error during class check: {str(e)}", extra={'user_id': user_id})
+
+    async def _check_expired_pauses(self):
+        """Check for expired pauses and notify users, then clear the pause."""
+        try:
+            expired_filters = db.get_expired_paused_filters()
+            for user_filter in expired_filters:
+                # Clear the pause
+                db.unpause_filter(user_filter.id, user_filter.user_id)
+                logger.info(f"Filter {user_filter.id} pause expired, reactivating", 
+                           extra={'user_id': user_filter.user_id})
+                
+                # Notify user
+                if self.notification_sender:
+                    try:
+                        await self.notification_sender.send_filter_unpaused_notification(
+                            user_filter.user_id, user_filter
+                        )
+                    except Exception as e:
+                        logger.warning(f"Failed to send unpause notification: {e}", 
+                                     extra={'user_id': user_filter.user_id})
+        except Exception as e:
+            logger.error(f"Error checking expired pauses: {e}", extra={'user_id': 'system'})
 
 
 # Global scheduler instance

@@ -54,6 +54,7 @@ class UserFilter:
     time_to: Optional[str] = None              # "20:00" (optional)
     weekdays: Optional[str] = None             # "1,2,3,4,5" (Monday=1...Sunday=7) - optional, comma-separated
     auto_booking: bool = False                 # Enable automatic booking for this filter
+    paused_until: Optional[datetime] = None    # Filter is paused until this datetime (None = active)
     created_at: datetime = None
     updated_at: datetime = None
     
@@ -62,6 +63,13 @@ class UserFilter:
             self.created_at = datetime.now()
         if self.updated_at is None:
             self.updated_at = datetime.now()
+    
+    @property
+    def is_paused(self) -> bool:
+        """Check if filter is currently paused."""
+        if self.paused_until is None:
+            return False
+        return datetime.now() < self.paused_until
 
 
 @dataclass
