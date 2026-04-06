@@ -53,17 +53,17 @@ sudo docker compose build --no-cache && sudo docker compose up -d
 sudo docker compose logs -f zdrofit-bot
 
 # Stop the bot
-docker compose down
+sudo docker compose down
 ```
 
 ### Manual Docker Build
 
 ```bash
 # Build the image
-docker build -t zdrofit-bot .
+sudo docker build -t zdrofit-bot .
 
 # Run the container
-docker run -d \
+sudo docker run -d \
   --name zdrofit-bot \
   --restart unless-stopped \
   -e TELEGRAM_BOT_TOKEN=your_token \
@@ -96,7 +96,7 @@ python -m unittest tests.test_filters -v
 ### SQLite CLI
 
 ```bash
-sqlite3 data/bot.db
+sqlite3 data/zdrofit.db
 
 # Commands:
 .tables                  # List tables
