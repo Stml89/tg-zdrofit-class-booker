@@ -147,6 +147,7 @@ src/
 
 - [x] Support another fitness clubs
 - [x] Implement auto apply to a class
+- [x] Implement pause feature
 - [ ] Web interface
 - [ ] Export to Google Calendar
 - [ ] Usage statistics
