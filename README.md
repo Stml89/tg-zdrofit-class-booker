@@ -146,18 +146,18 @@ src/
 - [x] Support all Zdrofit fitness clubs across Poland
 - [x] Implement auto apply feature
 - [x] Implement pause feature
-- [ ] Add motivation messages/bages for X attended trainings
-- [ ] Usage statistics
-- [ ] Add end year wrap stats and info
 - [ ] Send notification to customers
+- [ ] Usage statistics
+- [ ] Add motivation messages/bages for X attended trainings
 - [ ] Implement training reminder
+- [ ] Add subscription
 - [ ] Diff users by type: free/paid
 - [ ] Integrate with payment system
-- [ ] Add subscription
+- [ ] Add end year wrap stats and info
 - [ ] Check changes in schedule
 - [ ] Check adding new classes
-- [ ] Web interface
 - [ ] Export to Google Calendar
+- [ ] Web interface
 - [ ] Telegram Mini App
 
 ## Configuration
