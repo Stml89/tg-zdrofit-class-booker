@@ -13,7 +13,7 @@ import json
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.database.db import Database
-from src.database.models import User, UserFilter, FilterCatalog, Booking
+from src.database.models import User, UserFilter, Booking
 from src.api.filter import filter_classes
 from src.utils.helpers import (
     parse_datetime, format_datetime_display, 
@@ -119,99 +119,6 @@ class TestHelpers(unittest.TestCase):
         formatted = format_datetime_display(dt)
         
         self.assertEqual(formatted, "01.01.2026 14:30")
-
-
-class TestFilterCatalog(unittest.TestCase):
-    """Test filter catalog (cache) operations."""
-    
-    def setUp(self):
-        """Create a temporary database for testing."""
-        self.temp_db = tempfile.NamedTemporaryFile(delete=False, suffix='.db')
-        self.db_path = self.temp_db.name
-        self.temp_db.close()
-        self.db = Database(self.db_path)
-    
-    def tearDown(self):
-        """Clean up temporary database."""
-        try:
-            Path(self.db_path).unlink()
-        except:
-            pass
-    
-    def test_save_filter_catalog(self):
-        """Test saving filter catalog."""
-        zone_id = "167"
-        zone_name = "Zdrofit Lazurowa"
-        filter_type = "timetables"
-        data = json.dumps([
-            {"Id": "63", "Name": "Pilates"},
-            {"Id": "64", "Name": "Yoga"}
-        ])
-        
-        result = self.db.save_filter_catalog(zone_id, zone_name, filter_type, data)
-        self.assertTrue(result)
-    
-    def test_get_filter_catalog(self):
-        """Test retrieving filter catalog."""
-        zone_id = "167"
-        zone_name = "Zdrofit Lazurowa"
-        filter_type = "trainers"
-        data = json.dumps([{"Id": "185", "Name": "Adam"}])
-        
-        self.db.save_filter_catalog(zone_id, zone_name, filter_type, data)
-        retrieved_data = self.db.get_filter_catalog(zone_id, filter_type)
-        
-        self.assertIsNotNone(retrieved_data)
-        parsed = json.loads(retrieved_data)
-        self.assertEqual(len(parsed), 1)
-        self.assertEqual(parsed[0]["Id"], "185")
-    
-    def test_filter_catalog_expiry(self):
-        """Test that expired cache is not returned."""
-        zone_id = "167"
-        zone_name = "Zdrofit Lazurowa"
-        filter_type = "categories"
-        data = json.dumps([{"Id": "9", "Name": "Mini Class"}])
-        
-        # Set expiry to past time
-        expires_at = datetime.now() - timedelta(hours=1)
-        self.db.save_filter_catalog(zone_id, zone_name, filter_type, data, expires_at)
-        
-        # Should return None for expired cache
-        retrieved_data = self.db.get_filter_catalog(zone_id, filter_type)
-        self.assertIsNone(retrieved_data)
-    
-    def test_invalidate_filter_catalog(self):
-        """Test invalidating filter catalog."""
-        zone_id = "167"
-        zone_name = "Zdrofit Lazurowa"
-        filter_type = "timetables"
-        data = json.dumps([{"Id": "63", "Name": "Pilates"}])
-        
-        self.db.save_filter_catalog(zone_id, zone_name, filter_type, data)
-        self.db.invalidate_filter_catalog(zone_id, filter_type)
-        
-        retrieved_data = self.db.get_filter_catalog(zone_id, filter_type)
-        self.assertIsNone(retrieved_data)
-    
-    def test_invalidate_all_catalog_for_zone(self):
-        """Test invalidating all cache for a zone."""
-        zone_id = "167"
-        zone_name = "Zdrofit Lazurowa"
-        
-        # Save multiple filter types
-        data = json.dumps([{"Id": "1", "Name": "Test"}])
-        self.db.save_filter_catalog(zone_id, zone_name, "timetables", data)
-        self.db.save_filter_catalog(zone_id, zone_name, "trainers", data)
-        self.db.save_filter_catalog(zone_id, zone_name, "categories", data)
-        
-        # Invalidate all for zone
-        self.db.invalidate_filter_catalog(zone_id=zone_id)
-        
-        # All should be gone
-        self.assertIsNone(self.db.get_filter_catalog(zone_id, "timetables"))
-        self.assertIsNone(self.db.get_filter_catalog(zone_id, "trainers"))
-        self.assertIsNone(self.db.get_filter_catalog(zone_id, "categories"))
 
 
 class TestBookingCancellation(unittest.TestCase):

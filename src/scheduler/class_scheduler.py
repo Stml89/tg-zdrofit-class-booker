@@ -1,21 +1,23 @@
-"""Scheduler for automatic class checking."""
+"""Scheduler for automatic class checking with concurrent user processing."""
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
-from typing import Optional
+from typing import Optional, List, Dict, Tuple
 import asyncio
+import time
 
 from src.database.db import Database
 from src.api.zdrofit_client import ZdrofitAPIClient
 from src.telegram_bot.notifications import NotificationSender
 from src.utils.logger import get_logger
+from config.config import MAX_CONCURRENT_USERS, SCHEDULER_TIMEOUT
 
 logger = get_logger(__name__)
 db = Database()
 
 
 class ClassCheckScheduler:
-    """Scheduler for periodic class availability checks."""
+    """Scheduler for periodic class availability checks with concurrent processing."""
     
     def __init__(self, app=None, loop=None):
         self.scheduler = BackgroundScheduler()
@@ -66,7 +68,7 @@ class ClassCheckScheduler:
                     self.loop
                 )
                 # Wait for the result (with timeout)
-                future.result(timeout=300)  # 5 minute timeout
+                future.result(timeout=SCHEDULER_TIMEOUT)
             else:
                 # Fallback: create a new event loop
                 asyncio.run(self._async_check_classes())
@@ -77,7 +79,7 @@ class ClassCheckScheduler:
             logger.info("=" * 50)
     
     async def _async_check_classes(self):
-        """Async function to check classes for all users."""
+        """Async function to check classes for all users concurrently."""
         # Check for expired pauses and notify users
         await self._check_expired_pauses()
         
@@ -88,20 +90,57 @@ class ClassCheckScheduler:
             logger.warning("No users registered in the system", extra={'user_id': 'system'})
             return
         
-        for user in users:
-            try:
-                await self._check_user_classes(user.telegram_id, user.zdrofit_email, user.zdrofit_password)
-            except Exception as e:
-                logger.error(f"Error checking classes for user: {e}", extra={'user_id': user.telegram_id})
+        # Process users concurrently with a semaphore to limit parallelism
+        semaphore = asyncio.Semaphore(MAX_CONCURRENT_USERS)
+        start_time = time.monotonic()
+        
+        async def check_user_with_limit(user):
+            async with semaphore:
+                try:
+                    await self._check_user_classes(user.telegram_id, user.zdrofit_email, user.zdrofit_password)
+                except Exception as e:
+                    logger.error(f"Error checking classes for user: {e}", extra={'user_id': user.telegram_id})
+        
+        # Run all users concurrently (semaphore limits actual parallelism)
+        await asyncio.gather(*[check_user_with_limit(user) for user in users])
+        
+        elapsed = time.monotonic() - start_time
+        logger.info(f"All {len(users)} users processed in {elapsed:.1f}s (max_concurrent={MAX_CONCURRENT_USERS})", 
+                    extra={'user_id': 'system'})
+    
+    # ==================== Blocking API helpers (run in thread pool) ====================
+    
+    @staticmethod
+    def _sync_authenticate(client: ZdrofitAPIClient, user_id: int) -> bool:
+        """Authenticate with Zdrofit API (blocking, runs in thread)."""
+        return client.authenticate(user_id)
+    
+    @staticmethod
+    def _sync_get_classes(client: ZdrofitAPIClient, user_filter, user_id: int) -> List[Dict]:
+        """Get classes by filter (blocking, runs in thread)."""
+        return client.get_classes_by_filter(user_filter, user_id)
+    
+    @staticmethod
+    def _sync_get_default_classes(client: ZdrofitAPIClient, user_id: int, club_id: int) -> List[Dict]:
+        """Get default club classes (blocking, runs in thread)."""
+        return client.get_available_classes(user_id, club_id=club_id)
+    
+    @staticmethod
+    def _sync_book_class(client: ZdrofitAPIClient, class_id: str, user_id: int) -> bool:
+        """Book a class (blocking, runs in thread)."""
+        return client.book_class(class_id, user_id)
+    
+    # ==================== Main user processing ====================
     
     async def _check_user_classes(self, user_id: int, email: str, password: str):
-        """Check available classes for a specific user."""
+        """Check available classes for a specific user (non-blocking)."""
         try:
             logger.info(f"Starting class check", extra={'user_id': user_id})
             
-            # Authenticate with zdrofit
+            # Authenticate with zdrofit (offload blocking call to thread)
             client = ZdrofitAPIClient(email, password)
-            if not client.authenticate(user_id):
+            authenticated = await asyncio.to_thread(self._sync_authenticate, client, user_id)
+            if not authenticated:
                 logger.error(f"Failed to authenticate with zdrofit", extra={'user_id': user_id})
                 await self.notification_sender.send_error_notification(
                     user_id, 
@@ -119,16 +158,30 @@ class ClassCheckScheduler:
             class_to_filters = {}  # {class_id: [filter1, filter2, ...]}
             all_classes = []
             
-            # Get available classes for each filter
+            # Get available classes for each filter (offload blocking calls to threads)
             if user_filters:
+                active_filters = [f for f in user_filters if not f.is_paused and f.club_id]
+                
+                # Log skipped paused filters
                 for user_filter in user_filters:
-                    # Skip paused filters
                     if user_filter.is_paused:
                         logger.debug(f"Filter {user_filter.id} is paused until {user_filter.paused_until}, skipping", 
                                     extra={'user_id': user_id})
-                        continue
-                    if user_filter.club_id:
-                        classes = client.get_classes_by_filter(user_filter, user_id)
+                
+                # Fetch classes for all active filters concurrently in threads
+                if active_filters:
+                    fetch_tasks = [
+                        asyncio.to_thread(self._sync_get_classes, client, user_filter, user_id)
+                        for user_filter in active_filters
+                    ]
+                    results = await asyncio.gather(*fetch_tasks, return_exceptions=True)
+                    
+                    for user_filter, result in zip(active_filters, results):
+                        if isinstance(result, Exception):
+                            logger.error(f"Error fetching classes for filter {user_filter.id}: {result}", 
+                                        extra={'user_id': user_id})
+                            continue
+                        classes = result
                         all_classes.extend(classes)
                         # Track which filters match this class
                         for cls in classes:
@@ -139,8 +192,8 @@ class ClassCheckScheduler:
                         logger.info(f"Retrieved {len(classes)} classes for filter: {user_filter.club_name}", 
                                    extra={'user_id': user_id})
             else:
-                # No filters - get default club classes
-                classes = client.get_available_classes(user_id, club_id=7)
+                # No filters - get default club classes (offload to thread)
+                classes = await asyncio.to_thread(self._sync_get_default_classes, client, user_id, 7)
                 all_classes = classes
                 logger.info(f"Retrieved {len(classes)} available classes (no filters)", extra={'user_id': user_id})
             
@@ -181,13 +234,12 @@ class ClassCheckScheduler:
                 auto_booked = False
                 for user_filter in matching_filters:
                     if user_filter.auto_booking:
-
-                        # Attempt to auto-book
+                        # Attempt to auto-book (offload booking to thread)
                         logger.info(f"Attempting to auto-book class {class_id} for filter {user_filter.id}", 
                                     extra={'user_id': user_id})
                         try:
-                            # Attempt booking through API
-                            if client.book_class(class_id, user_id):
+                            booked = await asyncio.to_thread(self._sync_book_class, client, class_id, user_id)
+                            if booked:
                                 # Save booking to database with auto_booking flag
                                 from src.database.models import Booking
                                 booking = Booking(
