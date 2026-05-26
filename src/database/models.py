@@ -73,31 +73,6 @@ class UserFilter:
 
 
 @dataclass
-class FilterCatalog:
-    """Cache for calendar filter options from API."""
-    id: Optional[int] = None
-    zone_id: str = None                     # "10"
-    zone_name: str = None                   # "Zdrofit Bemowo" (for convenience)
-    filter_type: str = None                 # "trainers", "categories", "timetables", "zones"
-    data: str = None                        # JSON: [{"Id": "185", "Name": "ADAM..."}, ...]
-    cached_at: datetime = None
-    expires_at: datetime = None             # Expiry time (24 hours)
-    created_at: datetime = None
-    updated_at: datetime = None
-    
-    def __post_init__(self):
-        from datetime import timedelta
-        if self.cached_at is None:
-            self.cached_at = datetime.now()
-        if self.expires_at is None:
-            self.expires_at = datetime.now() + timedelta(hours=24)
-        if self.created_at is None:
-            self.created_at = datetime.now()
-        if self.updated_at is None:
-            self.updated_at = datetime.now()
-
-
-@dataclass
 class Booking:
     """Booking model."""
     id: Optional[int] = None

@@ -271,7 +271,7 @@ class ZdrofitAPIClient:
             
             logger.debug(f"Response status: {response.status_code}", extra={'user_id': user_id or 'unknown'})
             logger.debug(f"{response.text[:500]}", extra={'user_id': user_id or 'unknown'})
-            
+
             if response.status_code == 200:
                 logger.info(f"Successfully booked class {class_id}", extra={'user_id': user_id or 'unknown'})
                 return True

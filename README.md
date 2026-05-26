@@ -89,9 +89,7 @@ python -m unittest tests.test_filters -v
 
 - **users** - User credentials
 - **user_filters** - Saved filters
-- **available_classes** - Found available classes
 - **bookings** - Booked classes
-- **filter_catalog** - Filter parameters cache
 
 ### SQLite CLI
 
@@ -145,11 +143,21 @@ src/
 
 ## Future Plans
 
-- [x] Support another fitness clubs
-- [x] Implement auto apply to a class
-- [ ] Web interface
-- [ ] Export to Google Calendar
+- [x] Support all Zdrofit fitness clubs across Poland
+- [x] Implement auto apply feature
+- [x] Implement pause feature
+- [ ] Send notification to customers
 - [ ] Usage statistics
+- [ ] Add motivation messages/bages for X attended trainings
+- [ ] Implement training reminder
+- [ ] Add subscription
+- [ ] Diff users by type: free/paid
+- [ ] Integrate with payment system
+- [ ] Add end year wrap stats and info
+- [ ] Check changes in schedule
+- [ ] Check adding new classes
+- [ ] Export to Google Calendar
+- [ ] Web interface
 - [ ] Telegram Mini App
 
 ## Configuration

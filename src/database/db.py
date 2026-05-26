@@ -7,7 +7,7 @@ from typing import List, Optional
 from config.config import DB_PATH
 from src.utils.logger import get_logger
 from src.utils.crypto import PasswordEncryptor
-from src.database.models import User, UserFilter, Booking, FilterCatalog
+from src.database.models import User, UserFilter, Booking
 
 logger = get_logger(__name__)
 
@@ -68,44 +68,6 @@ class Database:
                 )
             ''')
             
-            # Filter catalog (cache for filter options)
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS filter_catalog (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    zone_id TEXT,
-                    zone_name TEXT,
-                    filter_type TEXT,
-                    data TEXT,
-                    cached_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    expires_at TIMESTAMP,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    UNIQUE(zone_id, filter_type)
-                )
-            ''')
-            
-            # Available classes table
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS available_classes (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    user_id INTEGER NOT NULL,
-                    class_id TEXT NOT NULL,
-                    title TEXT NOT NULL,
-                    gym_name TEXT,
-                    trainer_name TEXT,
-                    activity_type TEXT,
-                    start_time TIMESTAMP,
-                    end_time TIMESTAMP,
-                    available_spots INTEGER,
-                    notified_at TIMESTAMP,
-                    skipped INTEGER DEFAULT 0,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    UNIQUE(user_id, class_id),
-                    FOREIGN KEY (user_id) REFERENCES users(telegram_id)
-                )
-            ''')
-            
             # Bookings table
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS bookings (
@@ -152,6 +114,18 @@ class Database:
                 cursor.execute("ALTER TABLE user_filters ADD COLUMN paused_until TIMESTAMP")
             except sqlite3.OperationalError:
                 # Column already exists, ignore
+                pass
+            
+            # Drop obsolete available_classes table (migration)
+            try:
+                cursor.execute("DROP TABLE IF EXISTS available_classes")
+            except sqlite3.OperationalError:
+                pass
+            
+            # Drop obsolete filter_catalog table (migration)
+            try:
+                cursor.execute("DROP TABLE IF EXISTS filter_catalog")
+            except sqlite3.OperationalError:
                 pass
             
             conn.commit()
@@ -245,54 +219,6 @@ class Database:
         except Exception as e:
             logger.error(f"Error getting all users: {e}")
             return []
-    
-    # User filter operations
-    def add_filter(self, user_filter: UserFilter) -> bool:
-        """Add or update user filter."""
-        try:
-            conn = self.get_connection()
-            cursor = conn.cursor()
-            
-            # Delete old filter and add new one
-            cursor.execute('DELETE FROM user_filters WHERE user_id = ?', (user_filter.user_id,))
-            
-            cursor.execute('''
-                INSERT INTO user_filters 
-                (user_id, gym_id, trainer_id, activity_type, updated_at)
-                VALUES (?, ?, ?, ?, ?)
-            ''', (user_filter.user_id, user_filter.gym_id, user_filter.trainer_id, 
-                  user_filter.activity_type, datetime.now()))
-            conn.commit()
-            conn.close()
-            logger.info(f"Filter updated", extra={'user_id': user_filter.user_id})
-            return True
-        except Exception as e:
-            logger.error(f"Error adding filter: {e}", extra={'user_id': user_filter.user_id})
-            return False
-    
-    def get_filter(self, user_id: int) -> Optional[UserFilter]:
-        """Get user filters."""
-        try:
-            conn = self.get_connection()
-            cursor = conn.cursor()
-            cursor.execute('SELECT * FROM user_filters WHERE user_id = ?', (user_id,))
-            row = cursor.fetchone()
-            conn.close()
-            
-            if row:
-                return UserFilter(
-                    id=row['id'],
-                    user_id=row['user_id'],
-                    gym_id=row['gym_id'],
-                    trainer_id=row['trainer_id'],
-                    activity_type=row['activity_type'],
-                    created_at=datetime.fromisoformat(row['created_at']),
-                    updated_at=datetime.fromisoformat(row['updated_at'])
-                )
-            return None
-        except Exception as e:
-            logger.error(f"Error getting filter: {e}", extra={'user_id': user_id})
-            return None
     
     # Booking operations
     def add_booking(self, booking: Booking) -> bool:
@@ -689,79 +615,3 @@ class Database:
             logger.error(f"Error getting expired paused filters: {e}")
             return []
     
-    # ==================== Filter Catalog (Cache) ====================
-    
-    def save_filter_catalog(self, zone_id: str, zone_name: str, filter_type: str, data: str, expires_at: datetime = None) -> bool:
-        """Save filter catalog (cache for filter options)."""
-        try:
-            from datetime import timedelta
-            if expires_at is None:
-                expires_at = datetime.now() + timedelta(hours=24)
-            
-            conn = self.get_connection()
-            cursor = conn.cursor()
-            
-            cursor.execute('''
-                INSERT OR REPLACE INTO filter_catalog 
-                (zone_id, zone_name, filter_type, data, cached_at, expires_at)
-                VALUES (?, ?, ?, ?, ?, ?)
-            ''', (zone_id, zone_name, filter_type, data, datetime.now(), expires_at))
-            
-            conn.commit()
-            conn.close()
-            logger.debug(f"Saved {filter_type} catalog for zone {zone_id}")
-            return True
-        except Exception as e:
-            logger.error(f"Error saving filter catalog: {e}")
-            return False
-    
-    def get_filter_catalog(self, zone_id: str, filter_type: str) -> Optional[str]:
-        """Get filter catalog from cache if not expired."""
-        try:
-            conn = self.get_connection()
-            cursor = conn.cursor()
-            cursor.execute('''
-                SELECT data, expires_at FROM filter_catalog 
-                WHERE zone_id = ? AND filter_type = ?
-            ''', (zone_id, filter_type))
-            row = cursor.fetchone()
-            conn.close()
-            
-            if not row:
-                return None
-            
-            # Check if cache is expired
-            expires_at = datetime.fromisoformat(row['expires_at']) if row['expires_at'] else None
-            if expires_at and datetime.now() > expires_at:
-                logger.debug(f"Cache expired for {filter_type} in zone {zone_id}")
-                return None
-            
-            return row['data']
-        except Exception as e:
-            logger.error(f"Error getting filter catalog: {e}")
-            return None
-    
-    def invalidate_filter_catalog(self, zone_id: str = None, filter_type: str = None) -> bool:
-        """Invalidate filter catalog cache."""
-        try:
-            conn = self.get_connection()
-            cursor = conn.cursor()
-            
-            if zone_id and filter_type:
-                cursor.execute('''
-                    DELETE FROM filter_catalog 
-                    WHERE zone_id = ? AND filter_type = ?
-                ''', (zone_id, filter_type))
-            elif zone_id:
-                cursor.execute('DELETE FROM filter_catalog WHERE zone_id = ?', (zone_id,))
-            else:
-                cursor.execute('DELETE FROM filter_catalog')
-            
-            conn.commit()
-            conn.close()
-            logger.debug(f"Invalidated filter catalog cache (zone={zone_id}, type={filter_type})")
-            return True
-        except Exception as e:
-            logger.error(f"Error invalidating filter catalog: {e}")
-            return False
-

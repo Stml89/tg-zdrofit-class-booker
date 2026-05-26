@@ -261,3 +261,7 @@ TELEGRAM_READ_TIMEOUT = int(os.getenv("TELEGRAM_READ_TIMEOUT", "15"))
 TELEGRAM_WRITE_TIMEOUT = int(os.getenv("TELEGRAM_WRITE_TIMEOUT", "15"))
 TELEGRAM_POOL_TIMEOUT = int(os.getenv("TELEGRAM_POOL_TIMEOUT", "30"))
 TELEGRAM_POOL_SIZE = int(os.getenv("TELEGRAM_POOL_SIZE", "32"))
+
+# Scheduler concurrency settings
+MAX_CONCURRENT_USERS = int(os.getenv("MAX_CONCURRENT_USERS", "10"))  # Max users processed in parallel
+SCHEDULER_TIMEOUT = int(os.getenv("SCHEDULER_TIMEOUT", "300"))  # Total timeout for a check cycle (seconds)
