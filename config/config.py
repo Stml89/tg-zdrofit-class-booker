@@ -13,7 +13,7 @@ if not TELEGRAM_BOT_TOKEN:
     raise ValueError("TELEGRAM_BOT_TOKEN not set in .env file")
 
 # API settings
-ZDROFIT_API_BASE_URL = "https://zdrofit.perfectgym.pl"
+ZDROFIT_API_BASE_URL = os.getenv("ZDROFIT_API_BASE_URL")
 
 # Database settings
 BASE_DIR = Path(__file__).parent.parent
@@ -254,6 +254,9 @@ AVAILABLE_CLUBS = {
         "Zdrofit Włocławek Wzorcownia": 28,
     },
 }
+
+# Admin settings
+ADMIN_TELEGRAM_IDS = [int(x.strip()) for x in os.getenv("ADMIN_TELEGRAM_IDS", "").split(",") if x.strip()]
 
 # Telegram connection pool settings
 TELEGRAM_CONNECT_TIMEOUT = int(os.getenv("TELEGRAM_CONNECT_TIMEOUT", "15"))

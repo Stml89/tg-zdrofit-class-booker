@@ -10,7 +10,7 @@ from src.database.db import Database
 from src.database.models import User, UserFilter, Booking
 from src.api.zdrofit_client import ZdrofitAPIClient
 from src.utils.logger import get_logger
-from config.config import TELEGRAM_BOT_TOKEN
+from config.config import TELEGRAM_BOT_TOKEN, ADMIN_TELEGRAM_IDS
 
 logger = get_logger(__name__)
 db = Database()
@@ -186,6 +186,9 @@ class BotHandlers:
             "/past_classes - View your last 5 attended classes\n"
             "/logout - Logout from account\n"
         )
+        
+        if user_id in ADMIN_TELEGRAM_IDS:
+            message += "/broadcast - Send message to all users\n"
         
         if user:
             message += f"\nYou are already logged in as {user.zdrofit_email}"
@@ -1571,6 +1574,36 @@ async def handle_text_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 
+async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Send a broadcast message to all users. Admin only."""
+    user_id = update.effective_user.id
+    
+    if user_id not in ADMIN_TELEGRAM_IDS:
+        await update.message.reply_text("⛔ You are not authorized to use this command.")
+        return
+    
+    message_text = " ".join(context.args) if context.args else ""
+    if not message_text:
+        await update.message.reply_text(
+            "Usage: /broadcast <message>\n\nExample: /broadcast ⚠️ Maintenance scheduled at 10pm."
+        )
+        return
+    
+    from src.telegram_bot.notifications import NotificationSender
+    
+    user_ids = db.get_all_user_telegram_ids()
+    if not user_ids:
+        await update.message.reply_text("No registered users to broadcast to.")
+        return
+    
+    sender = NotificationSender(bot=context.bot)
+    result = await sender.broadcast_message(user_ids, message_text)
+    
+    await update.message.reply_text(
+        f"📢 Broadcast complete.\n✅ Sent: {result['sent']}\n❌ Failed: {result['failed']}"
+    )
+
+
 def setup_bot_handlers(app: Application):
     """Setup all bot command handlers with strict security."""
     
@@ -1582,6 +1615,7 @@ def setup_bot_handlers(app: Application):
         "bookings": BotHandlers.bookings,
         "past_classes": BotHandlers.past_classes,
         "logout": BotHandlers.logout,
+        "broadcast": broadcast_command,
     }
     
     for command, handler in ALLOWED_COMMANDS.items():
