@@ -231,6 +231,31 @@ class NotificationSender:
         except Exception as e:
             logger.error(f"Error sending error notification: {e}", extra={'user_id': user_id})
     
+    async def broadcast_message(self, user_ids: list, message: str) -> dict:
+        """Broadcast a message to multiple users.
+        
+        Args:
+            user_ids: List of Telegram user IDs to send to.
+            message: HTML-formatted message text.
+            
+        Returns:
+            Dict with 'sent' and 'failed' counts.
+        """
+        sent = 0
+        failed = 0
+        for user_id in user_ids:
+            try:
+                await self.bot.send_message(
+                    chat_id=user_id,
+                    text=message,
+                    parse_mode=ParseMode.HTML
+                )
+                sent += 1
+            except Exception as e:
+                logger.warning(f"Failed to send broadcast to {user_id}: {e}")
+                failed += 1
+        return {"sent": sent, "failed": failed}
+
     async def send_filter_unpaused_notification(self, user_id: int, user_filter):
         """Send notification that a filter's pause has expired and it's active again."""
         try:

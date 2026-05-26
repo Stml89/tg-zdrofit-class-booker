@@ -195,6 +195,19 @@ class Database:
             logger.error(f"Error deleting user: {e}", extra={'user_id': telegram_id})
             return False
     
+    def get_all_user_telegram_ids(self) -> List[int]:
+        """Get all registered user telegram IDs."""
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            cursor.execute('SELECT telegram_id FROM users')
+            rows = cursor.fetchall()
+            conn.close()
+            return [row['telegram_id'] for row in rows]
+        except Exception as e:
+            logger.error(f"Error getting all user telegram IDs: {e}")
+            return []
+
     def get_all_users(self) -> List[User]:
         """Get all users with decrypted passwords."""
         try:
