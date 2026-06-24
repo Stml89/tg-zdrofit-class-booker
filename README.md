@@ -146,9 +146,9 @@ src/
 - [x] Support all Zdrofit fitness clubs across Poland
 - [x] Implement auto apply feature
 - [x] Implement pause feature
-- [X] Send notification to customers
+- [x] Send notification to customers
+- [x] Add motivation messages/bages for X attended trainings
 - [ ] Usage statistics
-- [ ] Add motivation messages/bages for X attended trainings
 - [ ] Implement training reminder
 - [ ] Add subscription
 - [ ] Diff users by type: free/paid

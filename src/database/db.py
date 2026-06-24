@@ -116,6 +116,18 @@ class Database:
                 # Column already exists, ignore
                 pass
             
+            # User milestones table
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS user_milestones (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    milestone INTEGER NOT NULL,
+                    awarded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(user_id, milestone),
+                    FOREIGN KEY (user_id) REFERENCES users(telegram_id)
+                )
+            ''')
+            
             # Drop obsolete available_classes table (migration)
             try:
                 cursor.execute("DROP TABLE IF EXISTS available_classes")
@@ -628,3 +640,34 @@ class Database:
             logger.error(f"Error getting expired paused filters: {e}")
             return []
     
+    # Milestone operations
+    def get_user_milestones(self, user_id: int) -> List[int]:
+        """Get list of milestone counts already awarded to user."""
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            cursor.execute('SELECT milestone FROM user_milestones WHERE user_id = ?', (user_id,))
+            rows = cursor.fetchall()
+            conn.close()
+            return [row['milestone'] for row in rows]
+        except Exception as e:
+            logger.error(f"Error getting user milestones: {e}", extra={'user_id': user_id})
+            return []
+
+    def add_user_milestone(self, user_id: int, milestone: int) -> bool:
+        """Record that a milestone was awarded to a user."""
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            cursor.execute(
+                'INSERT OR IGNORE INTO user_milestones (user_id, milestone) VALUES (?, ?)',
+                (user_id, milestone)
+            )
+            conn.commit()
+            conn.close()
+            logger.info(f"Milestone {milestone} awarded", extra={'user_id': user_id})
+            return True
+        except Exception as e:
+            logger.error(f"Error adding milestone: {e}", extra={'user_id': user_id})
+            return False
+

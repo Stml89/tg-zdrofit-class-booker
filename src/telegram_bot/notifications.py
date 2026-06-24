@@ -294,3 +294,39 @@ class NotificationSender:
             
         except Exception as e:
             logger.error(f"Error sending filter unpause notification: {e}", extra={'user_id': user_id})
+
+    async def send_milestone_message(self, user_id: int, text: str):
+        """Send a text-only motivation milestone message."""
+        try:
+            await self.bot.send_message(
+                chat_id=user_id,
+                text=text,
+                parse_mode=ParseMode.HTML
+            )
+            logger.info(f"Milestone message sent", extra={'user_id': user_id})
+        except Exception as e:
+            logger.error(f"Error sending milestone message: {e}", extra={'user_id': user_id})
+
+    async def send_milestone_badge(self, user_id: int, text: str, badge_path: str):
+        """Send a badge image with a caption for a milestone achievement."""
+        try:
+            from pathlib import Path
+            path = Path(badge_path)
+            if path.exists():
+                with open(path, "rb") as photo:
+                    await self.bot.send_photo(
+                        chat_id=user_id,
+                        photo=photo,
+                        caption=text,
+                        parse_mode=ParseMode.HTML
+                    )
+            else:
+                # Fallback to text if image not found
+                await self.bot.send_message(
+                    chat_id=user_id,
+                    text=text,
+                    parse_mode=ParseMode.HTML
+                )
+            logger.info(f"Milestone badge sent", extra={'user_id': user_id})
+        except Exception as e:
+            logger.error(f"Error sending milestone badge: {e}", extra={'user_id': user_id})

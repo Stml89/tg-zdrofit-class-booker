@@ -9,6 +9,7 @@ import time
 from src.database.db import Database
 from src.api.zdrofit_client import ZdrofitAPIClient
 from src.telegram_bot.notifications import NotificationSender
+from src.milestones import get_new_milestones
 from src.utils.logger import get_logger
 from config.config import MAX_CONCURRENT_USERS, SCHEDULER_TIMEOUT
 
@@ -280,8 +281,49 @@ class ClassCheckScheduler:
             logger.info(f"Class check completed - {auto_bookings_made} auto-booked, {notifications_sent} notifications sent", 
                        extra={'user_id': user_id})
             
+            # Check milestones based on past attended classes
+            await self._check_milestones(user_id, client)
+            
         except Exception as e:
             logger.error(f"Error during class check: {str(e)}", extra={'user_id': user_id})
+
+    async def _check_milestones(self, user_id: int, client: ZdrofitAPIClient):
+        """Check if user has reached any new milestones based on attended classes."""
+        try:
+            # Get user's past classes count from API
+            schedule = await asyncio.to_thread(client.get_user_schedule, user_id)
+            from datetime import datetime
+            now = datetime.now()
+            attended_count = 0
+            for cls in schedule:
+                start_time_str = cls.get("start_time", "")
+                if start_time_str:
+                    try:
+                        start_time = datetime.fromisoformat(start_time_str.replace('Z', '+00:00'))
+                        if start_time < now:
+                            attended_count += 1
+                    except (ValueError, TypeError):
+                        pass
+
+            if attended_count == 0:
+                return
+
+            # Get already awarded milestones
+            awarded = db.get_user_milestones(user_id)
+            new_milestones = get_new_milestones(attended_count, awarded)
+
+            for milestone in new_milestones:
+                if milestone.type == "badge" and milestone.badge_path:
+                    await self.notification_sender.send_milestone_badge(
+                        user_id, milestone.text, str(milestone.badge_path)
+                    )
+                else:
+                    await self.notification_sender.send_milestone_message(user_id, milestone.text)
+                db.add_user_milestone(user_id, milestone.count)
+                logger.info(f"Milestone {milestone.count} awarded", extra={'user_id': user_id})
+
+        except Exception as e:
+            logger.error(f"Error checking milestones: {e}", extra={'user_id': user_id})
 
     async def _check_expired_pauses(self):
         """Check for expired pauses and notify users, then clear the pause."""
