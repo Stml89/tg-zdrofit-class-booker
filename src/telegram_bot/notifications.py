@@ -295,6 +295,52 @@ class NotificationSender:
         except Exception as e:
             logger.error(f"Error sending filter unpause notification: {e}", extra={'user_id': user_id})
 
+    async def send_training_reminder(self, user_id: int, class_data: dict, reminder_minutes: int):
+        """Send a reminder about an upcoming booked training.
+
+        Includes date & time, training type, gym and trainer.
+
+        Args:
+            user_id: Telegram user ID.
+            class_data: Schedule item dict (name, club, zone, trainer, start_time).
+            reminder_minutes: Configured reminder lead time (for the headline).
+        """
+        try:
+            name = class_data.get("name") or "Training"
+            club = class_data.get("club") or "Zdrofit"
+            zone = class_data.get("zone")
+            trainer = class_data.get("trainer") or "Unknown"
+            start_time = class_data.get("start_time")
+
+            # Format date & time as "Monday, 24.06.2026 18:30"
+            formatted_time = "Unknown"
+            if isinstance(start_time, str):
+                try:
+                    dt = datetime.fromisoformat(start_time.replace('Z', '+00:00'))
+                    day_name = DAY_NAMES.get(dt.weekday(), "")
+                    formatted_time = f"{day_name}, {dt.strftime('%d.%m.%Y %H:%M')}"
+                except (ValueError, TypeError):
+                    formatted_time = str(start_time)
+
+            gym = f"{club} • {zone}" if zone else club
+
+            message = (
+                f"⏰ <b>Training reminder</b> — starts in ~{reminder_minutes} min!\n\n"
+                f"🏋 <b>{name}</b>\n"
+                f"📅 {formatted_time}\n"
+                f"📍 Gym: {gym}\n"
+                f"👤 Trainer: {trainer}"
+            )
+
+            await self.bot.send_message(
+                chat_id=user_id,
+                text=message,
+                parse_mode=ParseMode.HTML
+            )
+            logger.info(f"Training reminder sent (in {reminder_minutes} min)", extra={'user_id': user_id})
+        except Exception as e:
+            logger.error(f"Error sending training reminder: {e}", extra={'user_id': user_id})
+
     async def send_milestone_message(self, user_id: int, text: str):
         """Send a text-only motivation milestone message."""
         try:

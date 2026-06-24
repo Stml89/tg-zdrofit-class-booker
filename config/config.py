@@ -283,3 +283,7 @@ TELEGRAM_POOL_SIZE = int(os.getenv("TELEGRAM_POOL_SIZE", "32"))
 # Scheduler concurrency settings
 MAX_CONCURRENT_USERS = int(os.getenv("MAX_CONCURRENT_USERS", "10"))  # Max users processed in parallel
 SCHEDULER_TIMEOUT = int(os.getenv("SCHEDULER_TIMEOUT", "300"))  # Total timeout for a check cycle (seconds)
+
+# Training reminder settings
+REMINDER_CHECK_INTERVAL_MINUTES = int(os.getenv("REMINDER_CHECK_INTERVAL_MINUTES", "5"))  # How often to check for upcoming-training reminders
+REMINDER_OPTIONS = [15, 30, 60]  # Selectable reminder lead times (minutes before training)

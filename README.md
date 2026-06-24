@@ -148,12 +148,12 @@ src/
 - [x] Implement pause feature
 - [x] Send notification to customers
 - [x] Add motivation messages/bages for X attended trainings
+- [x] Implement training reminder
+- [ ] Add end year wrap stats and info
 - [ ] Usage statistics
-- [ ] Implement training reminder
 - [ ] Add subscription
 - [ ] Diff users by type: free/paid
 - [ ] Integrate with payment system
-- [ ] Add end year wrap stats and info
 - [ ] Check changes in schedule
 - [ ] Check adding new classes
 - [ ] Export to Google Calendar

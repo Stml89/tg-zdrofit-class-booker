@@ -102,6 +102,25 @@ async def show_time_selection(update: Update, context: ContextTypes.DEFAULT_TYPE
     )
 
 
+async def show_reminder_selection(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int, query):
+    """Show training reminder selection screen (default OFF)."""
+    context.user_data['filter_step'] = 'reminder'
+    
+    keyboard = [
+        [InlineKeyboardButton("🔕 Off (default)", callback_data="filter_reminder_off")],
+        [InlineKeyboardButton("⏰ 15 min before", callback_data="filter_reminder_15")],
+        [InlineKeyboardButton("⏰ 30 min before", callback_data="filter_reminder_30")],
+        [InlineKeyboardButton("⏰ 60 min before", callback_data="filter_reminder_60")],
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await query.edit_message_text(
+        "Enable a training reminder for this filter?\n\n"
+        "The bot will remind you about upcoming booked trainings",
+        reply_markup=reply_markup
+    )
+
+
 async def save_filter_to_db(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int, query):
     """Save filter to database with auto_booking setting."""
     try:
@@ -116,6 +135,7 @@ async def save_filter_to_db(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         time_hours = context.user_data.get('filter_time_hours')
         weekdays = context.user_data.get('filter_weekdays')
         auto_booking = context.user_data.get('filter_auto_booking', False)
+        reminder_minutes = context.user_data.get('filter_reminder_minutes')
         
         user_filter = UserFilter(
             user_id=user_id,
@@ -128,12 +148,13 @@ async def save_filter_to_db(update: Update, context: ContextTypes.DEFAULT_TYPE, 
             time_from=time_from,
             time_to=time_to,
             weekdays=weekdays,
-            auto_booking=auto_booking
+            auto_booking=auto_booking,
+            reminder_minutes=reminder_minutes
         )
         
         if db.add_filter(user_filter):
             context.user_data['filter_mode'] = False
-            logger.info(f"Filters saved successfully with auto_booking={auto_booking}", extra={'user_id': user_id})
+            logger.info(f"Filters saved successfully with auto_booking={auto_booking}, reminder={reminder_minutes}", extra={'user_id': user_id})
             
             weekdays_str = ""
             if weekdays:
@@ -150,12 +171,13 @@ async def save_filter_to_db(update: Update, context: ContextTypes.DEFAULT_TYPE, 
                 time_str = f"\nTime: {time_from or '00:00'} - {time_to or '23:59'}"
             
             auto_booking_str = "\n🤖 Auto-booking: ENABLED" if auto_booking else "\n🔔 Auto-booking: Disabled"
+            reminder_str = f"\n⏰ Reminder: {reminder_minutes} min before" if reminder_minutes else "\n⏰ Reminder: Off"
             
             await query.edit_message_text(
                 f"✓ Filters saved!\n\n"
                 f"Club: {club_name}\n"
                 f"Class: {timetable_name}\n"
-                f"Trainer: {trainer_name or 'Any'}{time_str}{weekdays_str}{auto_booking_str}\n\n"
+                f"Trainer: {trainer_name or 'Any'}{time_str}{weekdays_str}{auto_booking_str}{reminder_str}\n\n"
                 f"Now you can use /bookings to view available classes"
             )
         else:
@@ -386,6 +408,7 @@ class BotHandlers:
             context.user_data['filter_time_hours'] = None  # Store for display
             context.user_data['filter_weekdays'] = None  # Will store as "1,2,3,4,5" (Mon-Fri)
             context.user_data['filter_auto_booking'] = False  # Enable automatic booking
+            context.user_data['filter_reminder_minutes'] = None  # Training reminder lead time (15/30/60 or None=Off)
             
             # Show city selection buttons
             from config.config import AVAILABLE_CLUBS
@@ -1276,10 +1299,27 @@ class BotHandlers:
         # Auto booking decision
         elif query.data == "filter_auto_booking_yes":
             context.user_data['filter_auto_booking'] = True
-            await save_filter_to_db(update, context, user_id, query)
+            await show_reminder_selection(update, context, user_id, query)
         
         elif query.data == "filter_auto_booking_no":
             context.user_data['filter_auto_booking'] = False
+            await show_reminder_selection(update, context, user_id, query)
+        
+        # Training reminder decision
+        elif query.data == "filter_reminder_off":
+            context.user_data['filter_reminder_minutes'] = None
+            await save_filter_to_db(update, context, user_id, query)
+        
+        elif query.data == "filter_reminder_15":
+            context.user_data['filter_reminder_minutes'] = 15
+            await save_filter_to_db(update, context, user_id, query)
+        
+        elif query.data == "filter_reminder_30":
+            context.user_data['filter_reminder_minutes'] = 30
+            await save_filter_to_db(update, context, user_id, query)
+        
+        elif query.data == "filter_reminder_60":
+            context.user_data['filter_reminder_minutes'] = 60
             await save_filter_to_db(update, context, user_id, query)
         
         # Cancel

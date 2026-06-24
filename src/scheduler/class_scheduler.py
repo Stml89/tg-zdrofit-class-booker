@@ -10,8 +10,9 @@ from src.database.db import Database
 from src.api.zdrofit_client import ZdrofitAPIClient
 from src.telegram_bot.notifications import NotificationSender
 from src.milestones import get_new_milestones
+from src.reminders import find_reminder_filter, parse_reminder_time, should_send_reminder
 from src.utils.logger import get_logger
-from config.config import MAX_CONCURRENT_USERS, SCHEDULER_TIMEOUT
+from config.config import MAX_CONCURRENT_USERS, SCHEDULER_TIMEOUT, REMINDER_CHECK_INTERVAL_MINUTES
 
 logger = get_logger(__name__)
 db = Database()
@@ -41,6 +42,14 @@ class ClassCheckScheduler:
                 CronTrigger(minute="0"), 
                 id='check_classes',
                 name='Check available classes',
+                replace_existing=True
+            )
+            # Frequent job to deliver upcoming-training reminders on time
+            self.scheduler.add_job(
+                self._check_reminders_job,
+                CronTrigger(minute=f"*/{REMINDER_CHECK_INTERVAL_MINUTES}"),
+                id='check_reminders',
+                name='Check training reminders',
                 replace_existing=True
             )
             self.scheduler.start()
@@ -108,6 +117,37 @@ class ClassCheckScheduler:
         elapsed = time.monotonic() - start_time
         logger.info(f"All {len(users)} users processed in {elapsed:.1f}s (max_concurrent={MAX_CONCURRENT_USERS})", 
                     extra={'user_id': 'system'})
+    
+    def _check_reminders_job(self):
+        """Job that runs frequently to deliver upcoming-training reminders."""
+        try:
+            if self.loop and not self.loop.is_closed():
+                future = asyncio.run_coroutine_threadsafe(
+                    self._async_check_reminders(),
+                    self.loop
+                )
+                future.result(timeout=SCHEDULER_TIMEOUT)
+            else:
+                asyncio.run(self._async_check_reminders())
+        except Exception as e:
+            logger.error(f"Reminder check failed: {e}", extra={'user_id': 'system'})
+    
+    async def _async_check_reminders(self):
+        """Async function to check training reminders for all users concurrently."""
+        users = db.get_all_users()
+        if not users:
+            return
+        
+        semaphore = asyncio.Semaphore(MAX_CONCURRENT_USERS)
+        
+        async def check_user_with_limit(user):
+            async with semaphore:
+                try:
+                    await self._check_user_reminders(user.telegram_id, user.zdrofit_email, user.zdrofit_password)
+                except Exception as e:
+                    logger.error(f"Error checking reminders for user: {e}", extra={'user_id': user.telegram_id})
+        
+        await asyncio.gather(*[check_user_with_limit(user) for user in users])
     
     # ==================== Blocking API helpers (run in thread pool) ====================
     
@@ -295,6 +335,51 @@ class ClassCheckScheduler:
             
         except Exception as e:
             logger.error(f"Error during class check: {str(e)}", extra={'user_id': user_id})
+
+    async def _check_user_reminders(self, user_id: int, email: str, password: str):
+        """Send reminders for the user's upcoming booked trainings (per-filter setting)."""
+        # Only do work if the user has at least one active filter with reminders enabled
+        filters = db.get_all_filters(user_id)
+        reminder_filters = [f for f in filters if f.reminder_minutes and not f.is_paused]
+        if not reminder_filters:
+            return
+        
+        from datetime import datetime
+        
+        # Authenticate and fetch the user's schedule (upcoming booked classes)
+        client = ZdrofitAPIClient(email, password)
+        authenticated = await asyncio.to_thread(self._sync_authenticate, client, user_id)
+        if not authenticated:
+            logger.warning(f"Reminder check: failed to authenticate", extra={'user_id': user_id})
+            return
+        
+        schedule = await asyncio.to_thread(client.get_user_schedule, user_id)
+        if not schedule:
+            return
+        
+        now = datetime.now()
+        for class_item in schedule:
+            class_id = class_item.get("class_id")
+            if not class_id:
+                continue
+            
+            matched = find_reminder_filter(class_item, reminder_filters)
+            if not matched:
+                continue
+            
+            start_time = parse_reminder_time(class_item.get("start_time"))
+            if not should_send_reminder(start_time, matched.reminder_minutes, now):
+                continue
+            
+            # Avoid sending the same reminder more than once
+            if db.is_reminder_sent(user_id, str(class_id)):
+                continue
+            
+            await self.notification_sender.send_training_reminder(
+                user_id, class_item, matched.reminder_minutes
+            )
+            db.add_sent_reminder(user_id, str(class_id), matched.reminder_minutes)
+            logger.info(f"Training reminder sent for class {class_id}", extra={'user_id': user_id})
 
     async def _check_milestones(self, user_id: int, client: ZdrofitAPIClient):
         """Check if user has reached any new milestones based on attended classes."""

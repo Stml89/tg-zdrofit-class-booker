@@ -54,6 +54,7 @@ class UserFilter:
     time_to: Optional[str] = None              # "20:00" (optional)
     weekdays: Optional[str] = None             # "1,2,3,4,5" (Monday=1...Sunday=7) - optional, comma-separated
     auto_booking: bool = False                 # Enable automatic booking for this filter
+    reminder_minutes: Optional[int] = None     # Training reminder lead time in minutes (15/30/60). None/0 = OFF
     paused_until: Optional[datetime] = None    # Filter is paused until this datetime (None = active)
     created_at: datetime = None
     updated_at: datetime = None

@@ -62,6 +62,7 @@ class Database:
                     time_to TEXT,
                     weekdays TEXT,
                     auto_booking INTEGER DEFAULT 0,
+                    reminder_minutes INTEGER DEFAULT 0,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY (user_id) REFERENCES users(telegram_id)
@@ -116,6 +117,13 @@ class Database:
                 # Column already exists, ignore
                 pass
             
+            # Add reminder_minutes column to user_filters if it doesn't exist (migration)
+            try:
+                cursor.execute("ALTER TABLE user_filters ADD COLUMN reminder_minutes INTEGER DEFAULT 0")
+            except sqlite3.OperationalError:
+                # Column already exists, ignore
+                pass
+            
             # User milestones table
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS user_milestones (
@@ -135,6 +143,19 @@ class Database:
                     user_id INTEGER NOT NULL,
                     class_id TEXT NOT NULL,
                     skipped_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(user_id, class_id),
+                    FOREIGN KEY (user_id) REFERENCES users(telegram_id)
+                )
+            ''')
+            
+            # Sent training reminders table (avoid duplicate reminders)
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS sent_reminders (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    class_id TEXT NOT NULL,
+                    reminder_minutes INTEGER,
+                    sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     UNIQUE(user_id, class_id),
                     FOREIGN KEY (user_id) REFERENCES users(telegram_id)
                 )
@@ -392,8 +413,8 @@ class Database:
             cursor.execute('''
                 INSERT INTO user_filters 
                 (user_id, club_id, club_name, zone_id, zone_name, timetable_id, timetable_name, 
-                 category_id, category_name, trainer_id, trainer_name, time_from, time_to, weekdays, auto_booking)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 category_id, category_name, trainer_id, trainer_name, time_from, time_to, weekdays, auto_booking, reminder_minutes)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
                 user_filter.user_id,
                 user_filter.club_id,
@@ -409,7 +430,8 @@ class Database:
                 user_filter.time_from,
                 user_filter.time_to,
                 user_filter.weekdays,
-                1 if user_filter.auto_booking else 0
+                1 if user_filter.auto_booking else 0,
+                user_filter.reminder_minutes or 0
             ))
             
             conn.commit()
@@ -442,6 +464,11 @@ class Database:
                 paused_until = datetime.fromisoformat(row['paused_until']) if row['paused_until'] else None
             except (KeyError, ValueError):
                 pass
+            reminder_minutes = 0
+            try:
+                reminder_minutes = row['reminder_minutes'] or 0
+            except (KeyError, IndexError):
+                reminder_minutes = 0
             return UserFilter(
                 id=row['id'],
                 user_id=row['user_id'],
@@ -458,6 +485,7 @@ class Database:
                 time_from=row['time_from'],
                 time_to=row['time_to'],
                 weekdays=row['weekdays'],
+                reminder_minutes=reminder_minutes,
                 paused_until=paused_until,
                 created_at=datetime.fromisoformat(row['created_at']) if row['created_at'] else None,
                 updated_at=datetime.fromisoformat(row['updated_at']) if row['updated_at'] else None
@@ -489,6 +517,11 @@ class Database:
                     paused_until = datetime.fromisoformat(row['paused_until']) if row['paused_until'] else None
                 except (KeyError, ValueError):
                     pass
+                reminder_minutes = 0
+                try:
+                    reminder_minutes = row['reminder_minutes'] or 0
+                except (KeyError, IndexError):
+                    reminder_minutes = 0
                 filters.append(UserFilter(
                     id=row['id'],
                     user_id=row['user_id'],
@@ -506,6 +539,7 @@ class Database:
                     time_to=row['time_to'],
                     weekdays=row['weekdays'],
                     auto_booking=bool(row['auto_booking']),
+                    reminder_minutes=reminder_minutes,
                     paused_until=paused_until,
                     created_at=datetime.fromisoformat(row['created_at']) if row['created_at'] else None,
                     updated_at=datetime.fromisoformat(row['updated_at']) if row['updated_at'] else None
@@ -626,6 +660,11 @@ class Database:
                     paused_until = datetime.fromisoformat(row['paused_until']) if row['paused_until'] else None
                 except (KeyError, ValueError):
                     pass
+                reminder_minutes = 0
+                try:
+                    reminder_minutes = row['reminder_minutes'] or 0
+                except (KeyError, IndexError):
+                    reminder_minutes = 0
                 filters.append(UserFilter(
                     id=row['id'],
                     user_id=row['user_id'],
@@ -643,6 +682,7 @@ class Database:
                     time_to=row['time_to'],
                     weekdays=row['weekdays'],
                     auto_booking=bool(row['auto_booking']),
+                    reminder_minutes=reminder_minutes,
                     paused_until=paused_until,
                     created_at=datetime.fromisoformat(row['created_at']) if row['created_at'] else None,
                     updated_at=datetime.fromisoformat(row['updated_at']) if row['updated_at'] else None
@@ -713,4 +753,38 @@ class Database:
         except Exception as e:
             logger.error(f"Error getting skipped classes: {e}", extra={'user_id': user_id})
             return []
+
+    # Training reminder operations
+    def add_sent_reminder(self, user_id: int, class_id: str, reminder_minutes: int = None) -> bool:
+        """Record that a training reminder was sent for a class (prevents duplicates)."""
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            cursor.execute(
+                'INSERT OR IGNORE INTO sent_reminders (user_id, class_id, reminder_minutes) VALUES (?, ?, ?)',
+                (user_id, str(class_id), reminder_minutes)
+            )
+            conn.commit()
+            conn.close()
+            logger.info(f"Reminder recorded for class {class_id}", extra={'user_id': user_id})
+            return True
+        except Exception as e:
+            logger.error(f"Error recording sent reminder: {e}", extra={'user_id': user_id})
+            return False
+
+    def is_reminder_sent(self, user_id: int, class_id: str) -> bool:
+        """Check whether a reminder has already been sent for a class."""
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            cursor.execute(
+                'SELECT 1 FROM sent_reminders WHERE user_id = ? AND class_id = ? LIMIT 1',
+                (user_id, str(class_id))
+            )
+            row = cursor.fetchone()
+            conn.close()
+            return row is not None
+        except Exception as e:
+            logger.error(f"Error checking sent reminder: {e}", extra={'user_id': user_id})
+            return False
 
