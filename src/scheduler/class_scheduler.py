@@ -39,7 +39,7 @@ class ClassCheckScheduler:
             
             self.scheduler.add_job(
                 self._check_classes_job,
-                CronTrigger(minute="*/5"), 
+                CronTrigger(minute="0"), 
                 id='check_classes',
                 name='Check available classes',
                 replace_existing=True
