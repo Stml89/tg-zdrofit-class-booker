@@ -212,6 +212,10 @@ class ClassCheckScheduler:
             booked_class_ids = {b.class_id for b in booked_classes}
             logger.debug(f"User has {len(booked_class_ids)} booked classes", extra={'user_id': user_id})
             
+            # Get classes the user marked as "Not Interested" (skipped)
+            skipped_class_ids = set(db.get_skipped_class_ids(user_id))
+            logger.debug(f"User has {len(skipped_class_ids)} skipped classes", extra={'user_id': user_id})
+            
             if not classes:
                 logger.info(f"No available classes found", extra={'user_id': user_id})
                 return
@@ -267,6 +271,11 @@ class ClassCheckScheduler:
 
                 # If not auto-booked, send notification for manual booking
                 if not auto_booked:
+                    # Skip classes the user marked as "Not Interested"
+                    if class_id in skipped_class_ids:
+                        logger.debug(f"Class {class_id} was skipped by user, not notifying", extra={'user_id': user_id})
+                        continue
+                    
                     logger.info(f"Sending notification for class {class_id}: {class_data.get('title')}", 
                                extra={'user_id': user_id})
                     try:

@@ -128,6 +128,18 @@ class Database:
                 )
             ''')
             
+            # Skipped classes table (user marked "Not Interested")
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS skipped_classes (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    class_id TEXT NOT NULL,
+                    skipped_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(user_id, class_id),
+                    FOREIGN KEY (user_id) REFERENCES users(telegram_id)
+                )
+            ''')
+            
             # Drop obsolete available_classes table (migration)
             try:
                 cursor.execute("DROP TABLE IF EXISTS available_classes")
@@ -670,4 +682,35 @@ class Database:
         except Exception as e:
             logger.error(f"Error adding milestone: {e}", extra={'user_id': user_id})
             return False
+
+    # Skipped class operations
+    def add_skipped_class(self, user_id: int, class_id: str) -> bool:
+        """Mark a class as skipped ("Not Interested") so it won't be notified again."""
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            cursor.execute(
+                'INSERT OR IGNORE INTO skipped_classes (user_id, class_id) VALUES (?, ?)',
+                (user_id, str(class_id))
+            )
+            conn.commit()
+            conn.close()
+            logger.info(f"Class {class_id} marked as skipped", extra={'user_id': user_id})
+            return True
+        except Exception as e:
+            logger.error(f"Error adding skipped class: {e}", extra={'user_id': user_id})
+            return False
+
+    def get_skipped_class_ids(self, user_id: int) -> List[str]:
+        """Get list of class IDs the user has marked as skipped."""
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            cursor.execute('SELECT class_id FROM skipped_classes WHERE user_id = ?', (user_id,))
+            rows = cursor.fetchall()
+            conn.close()
+            return [row['class_id'] for row in rows]
+        except Exception as e:
+            logger.error(f"Error getting skipped classes: {e}", extra={'user_id': user_id})
+            return []
 

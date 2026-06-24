@@ -1540,7 +1540,10 @@ class BotHandlers:
             
             logger.info(f"User skipped class {class_id} (marked as not interested)", extra={'user_id': user_id})
             
-            # Simply delete the message - skipping functionality deprecated
+            # Persist the skip so the scheduler won't notify about this class again
+            db.add_skipped_class(user_id, class_id)
+            
+            # Remove the notification message
             try:
                 await query.delete_message()
             except Exception as e:
