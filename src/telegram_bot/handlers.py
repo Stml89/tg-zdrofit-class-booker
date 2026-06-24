@@ -469,6 +469,12 @@ class BotHandlers:
                     auto_booking_status = "🤖 ENABLED" if user_filter.auto_booking else "🔔 Disabled"
                     message += f"  Auto-booking: {auto_booking_status}\n"
                     
+                    # Display reminder status
+                    if user_filter.reminder_minutes:
+                        message += f"  Reminder: ⏰ {user_filter.reminder_minutes} min before\n"
+                    else:
+                        message += f"  Reminder: Off\n"
+                    
                     # Display pause status
                     if user_filter.is_paused:
                         message += f"  ⏸️ <b>PAUSED</b> until {user_filter.paused_until.strftime('%d.%m.%Y %H:%M')}\n"
