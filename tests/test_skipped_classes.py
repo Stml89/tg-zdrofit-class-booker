@@ -114,6 +114,41 @@ class TestSchedulerSkipsNotifications(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("skip_me", notified_ids)
         self.assertEqual(len(notified_ids), 1)
 
+    async def test_skipped_class_not_notified_integer_ids(self):
+        """Regression: API returns integer class IDs but skips are stored as strings.
+
+        Ensures the int/str mismatch does not cause skipped classes to be notified.
+        """
+        from src.scheduler.class_scheduler import ClassCheckScheduler
+
+        # User skipped class 1308455 (stored as string "1308455")
+        self.db.add_skipped_class(999, 1308455)
+
+        # API returns integer IDs (as real JSON does)
+        available_classes = [
+            {"id": 1308455, "title": "Stretching", "start_time": "2099-01-01T08:00:00"},
+            {"id": 1308999, "title": "Stretching", "start_time": "2099-01-01T09:00:00"},
+        ]
+
+        mock_client = MagicMock()
+        mock_client.authenticate.return_value = True
+        mock_client.get_available_classes.return_value = available_classes
+        mock_client.get_user_schedule.return_value = []
+
+        scheduler = ClassCheckScheduler()
+        scheduler.notification_sender = AsyncMock()
+
+        with patch("src.scheduler.class_scheduler.db", self.db), \
+             patch("src.scheduler.class_scheduler.ZdrofitAPIClient", return_value=mock_client):
+            await scheduler._check_user_classes(999, "user@example.com", "secret")
+
+        notified_ids = [
+            call.args[2] for call in scheduler.notification_sender.send_class_notification.call_args_list
+        ]
+        self.assertIn(1308999, notified_ids)
+        self.assertNotIn(1308455, notified_ids)
+        self.assertEqual(len(notified_ids), 1)
+
 
 if __name__ == "__main__":
     unittest.main()

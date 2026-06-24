@@ -39,7 +39,7 @@ class ClassCheckScheduler:
             
             self.scheduler.add_job(
                 self._check_classes_job,
-                CronTrigger(minute="0"), 
+                CronTrigger(minute="*/5"), 
                 id='check_classes',
                 name='Check available classes',
                 replace_existing=True
@@ -247,12 +247,12 @@ class ClassCheckScheduler:
                     seen_ids.add(class_id)
                     classes.append(c)
             
-            # Get already booked classes
+            # Get already booked classes (normalize IDs to str for reliable comparison)
             booked_classes = db.get_user_bookings(user_id)
-            booked_class_ids = {b.class_id for b in booked_classes}
+            booked_class_ids = {str(b.class_id) for b in booked_classes}
             logger.debug(f"User has {len(booked_class_ids)} booked classes", extra={'user_id': user_id})
             
-            # Get classes the user marked as "Not Interested" (skipped)
+            # Get classes the user marked as "Not Interested" (skipped) - stored as strings
             skipped_class_ids = set(db.get_skipped_class_ids(user_id))
             logger.debug(f"User has {len(skipped_class_ids)} skipped classes", extra={'user_id': user_id})
             
@@ -266,9 +266,11 @@ class ClassCheckScheduler:
             
             for class_data in classes:
                 class_id = class_data.get("id")
+                # Normalized string form used for booked/skipped set lookups
+                class_id_str = str(class_id)
                 
                 # Check if already booked
-                if class_id in booked_class_ids:
+                if class_id_str in booked_class_ids:
                     logger.debug(f"Class {class_id} already booked, skipping", extra={'user_id': user_id})
                     continue
                 
@@ -312,7 +314,7 @@ class ClassCheckScheduler:
                 # If not auto-booked, send notification for manual booking
                 if not auto_booked:
                     # Skip classes the user marked as "Not Interested"
-                    if class_id in skipped_class_ids:
+                    if class_id_str in skipped_class_ids:
                         logger.debug(f"Class {class_id} was skipped by user, not notifying", extra={'user_id': user_id})
                         continue
                     
@@ -401,6 +403,8 @@ class ClassCheckScheduler:
 
             if attended_count == 0:
                 return
+
+            logger.info(f"User attended: {attended_count} classes", extra={'user_id': user_id})
 
             # Get already awarded milestones
             awarded = db.get_user_milestones(user_id)
