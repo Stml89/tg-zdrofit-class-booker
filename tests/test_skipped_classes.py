@@ -1,0 +1,120 @@
+"""Tests for the 'Not Interested' (skipped classes) feature."""
+
+import sys
+import os
+import unittest
+import tempfile
+from unittest.mock import patch, MagicMock, AsyncMock
+
+# Add parent directory to path for imports
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from src.database.db import Database
+
+
+class TestSkippedClassesDatabase(unittest.TestCase):
+    """Test database operations for skipped classes."""
+
+    def setUp(self):
+        """Set up a temporary test database."""
+        self.test_db_path = tempfile.mktemp(suffix=".db")
+        self.db = Database(db_path=self.test_db_path)
+
+    def tearDown(self):
+        if os.path.exists(self.test_db_path):
+            os.unlink(self.test_db_path)
+
+    def test_no_skipped_classes_initially(self):
+        """A new user should have no skipped classes."""
+        self.assertEqual(self.db.get_skipped_class_ids(12345), [])
+
+    def test_add_and_get_skipped_class(self):
+        """Adding a skipped class should be retrievable."""
+        self.assertTrue(self.db.add_skipped_class(12345, "class_abc"))
+        self.assertEqual(self.db.get_skipped_class_ids(12345), ["class_abc"])
+
+    def test_add_multiple_skipped_classes(self):
+        """Multiple skipped classes should all be tracked."""
+        self.db.add_skipped_class(12345, "class_1")
+        self.db.add_skipped_class(12345, "class_2")
+        self.db.add_skipped_class(12345, "class_3")
+        self.assertCountEqual(
+            self.db.get_skipped_class_ids(12345),
+            ["class_1", "class_2", "class_3"],
+        )
+
+    def test_duplicate_skip_ignored(self):
+        """Skipping the same class twice should not create duplicates."""
+        self.db.add_skipped_class(12345, "class_1")
+        self.db.add_skipped_class(12345, "class_1")
+        self.assertEqual(self.db.get_skipped_class_ids(12345), ["class_1"])
+
+    def test_skips_are_per_user(self):
+        """Skipped classes should be isolated per user."""
+        self.db.add_skipped_class(111, "class_a")
+        self.db.add_skipped_class(222, "class_b")
+        self.assertEqual(self.db.get_skipped_class_ids(111), ["class_a"])
+        self.assertEqual(self.db.get_skipped_class_ids(222), ["class_b"])
+
+    def test_integer_class_id_stored_as_string(self):
+        """Integer class IDs should be normalized to strings."""
+        self.db.add_skipped_class(12345, 999)
+        self.assertEqual(self.db.get_skipped_class_ids(12345), ["999"])
+
+
+class TestSchedulerSkipsNotifications(unittest.IsolatedAsyncioTestCase):
+    """Verify the scheduler does not notify about skipped classes."""
+
+    def setUp(self):
+        self.test_db_path = tempfile.mktemp(suffix=".db")
+        self.db = Database(db_path=self.test_db_path)
+        # Register a user so foreign keys are satisfied
+        from src.database.models import User
+        self.db.add_user(User(
+            telegram_id=999,
+            zdrofit_email="user@example.com",
+            zdrofit_password="secret",
+        ))
+
+    def tearDown(self):
+        if os.path.exists(self.test_db_path):
+            os.unlink(self.test_db_path)
+
+    async def test_skipped_class_not_notified(self):
+        """A class marked as skipped must not trigger a notification, others should."""
+        from src.scheduler.class_scheduler import ClassCheckScheduler
+
+        # User skipped class "skip_me"
+        self.db.add_skipped_class(999, "skip_me")
+
+        # Two available classes: one skipped, one new
+        available_classes = [
+            {"id": "skip_me", "title": "Yoga", "start_time": "2099-01-01T10:00:00"},
+            {"id": "new_one", "title": "Pilates", "start_time": "2099-01-01T11:00:00"},
+        ]
+
+        # Mock API client
+        mock_client = MagicMock()
+        mock_client.authenticate.return_value = True
+        mock_client.get_available_classes.return_value = available_classes
+        mock_client.get_user_schedule.return_value = []  # for milestone check
+
+        scheduler = ClassCheckScheduler()
+        scheduler.notification_sender = AsyncMock()
+
+        with patch("src.scheduler.class_scheduler.db", self.db), \
+             patch("src.scheduler.class_scheduler.ZdrofitAPIClient", return_value=mock_client):
+            await scheduler._check_user_classes(999, "user@example.com", "secret")
+
+        # Only the non-skipped class should be notified
+        notified_ids = [
+            call.args[2] for call in scheduler.notification_sender.send_class_notification.call_args_list
+        ]
+        self.assertIn("new_one", notified_ids)
+        self.assertNotIn("skip_me", notified_ids)
+        self.assertEqual(len(notified_ids), 1)
+
+
+if __name__ == "__main__":
+    unittest.main()
+

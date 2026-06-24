@@ -256,7 +256,22 @@ AVAILABLE_CLUBS = {
 }
 
 # Admin settings
-ADMIN_TELEGRAM_IDS = [int(x.strip()) for x in os.getenv("ADMIN_TELEGRAM_IDS", "").split(",") if x.strip()]
+def _parse_admin_ids(raw: str) -> list:
+    """Parse comma-separated admin Telegram IDs, ignoring invalid entries."""
+    ids = []
+    for part in raw.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        try:
+            ids.append(int(part))
+        except ValueError:
+            # Ignore non-numeric placeholders (e.g. unset .env values)
+            continue
+    return ids
+
+
+ADMIN_TELEGRAM_IDS = _parse_admin_ids(os.getenv("ADMIN_TELEGRAM_IDS", ""))
 
 # Telegram connection pool settings
 TELEGRAM_CONNECT_TIMEOUT = int(os.getenv("TELEGRAM_CONNECT_TIMEOUT", "15"))
