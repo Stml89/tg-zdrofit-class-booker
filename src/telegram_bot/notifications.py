@@ -353,6 +353,18 @@ class NotificationSender:
         except Exception as e:
             logger.error(f"Error sending milestone message: {e}", extra={'user_id': user_id})
 
+    async def send_year_wrap(self, user_id: int, text: str):
+        """Send the year-wrap (yearly statistics) summary message."""
+        try:
+            await self.bot.send_message(
+                chat_id=user_id,
+                text=text,
+                parse_mode=ParseMode.HTML
+            )
+            logger.info(f"Year wrap sent", extra={'user_id': user_id})
+        except Exception as e:
+            logger.error(f"Error sending year wrap: {e}", extra={'user_id': user_id})
+
     async def send_milestone_badge(self, user_id: int, text: str, badge_path: str):
         """Send a badge image with a caption for a milestone achievement."""
         try:

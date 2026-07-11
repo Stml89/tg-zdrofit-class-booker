@@ -9,6 +9,7 @@ from datetime import datetime
 from src.database.db import Database
 from src.database.models import User, UserFilter, Booking
 from src.api.zdrofit_client import ZdrofitAPIClient
+from src.year_wrap import compute_year_wrap, format_year_wrap_message
 from src.utils.logger import get_logger
 from config.config import TELEGRAM_BOT_TOKEN, ADMIN_TELEGRAM_IDS
 
@@ -206,6 +207,7 @@ class BotHandlers:
             "/filters - Set search filters(limited, uses hardcoded values for now)\n"
             "/bookings - View your active bookings\n"
             "/past_classes - View your last 5 attended classes\n"
+            "/wrapped - Your year in review (fitness stats)\n"
             "/logout - Logout from account\n"
         )
         
@@ -1510,6 +1512,36 @@ class BotHandlers:
             await update.message.reply_text(message, parse_mode=ParseMode.HTML)
     
     @staticmethod
+    async def wrapped(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Show the user's year-wrap (Spotify-Wrapped style) statistics for the current year."""
+        user_id = update.effective_user.id
+        logger.info(f"User requested year wrap", extra={'user_id': user_id})
+        
+        user = db.get_user(user_id)
+        if not user:
+            await update.message.reply_text("Please login first: /login")
+            return
+        
+        client = ZdrofitAPIClient(user.zdrofit_email, user.zdrofit_password)
+        if not client.authenticate(user_id):
+            await update.message.reply_text("Authentication error. Please try again: /login")
+            return
+        
+        schedule = client.get_user_schedule(user_id)
+        year = datetime.now().year
+        stats = compute_year_wrap(schedule, year)
+        
+        if stats is None:
+            await update.message.reply_text(
+                f"You haven't attended any classes in {year} yet.\n"
+                "Book a class and come back to see your stats! 💪"
+            )
+            return
+        
+        message = format_year_wrap_message(stats)
+        await update.message.reply_text(message, parse_mode=ParseMode.HTML)
+    
+    @staticmethod
     async def handle_booking_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle booking button clicks."""
         user_id = update.effective_user.id
@@ -1619,6 +1651,7 @@ async def handle_text_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "/filters - Set filters\n"
             "/bookings - View bookings\n"
             "/past_classes - View past classes\n"
+            "/wrapped - Year in review\n"
             "/logout - Logout"
         )
 
@@ -1663,6 +1696,7 @@ def setup_bot_handlers(app: Application):
         "filters": BotHandlers.filters,
         "bookings": BotHandlers.bookings,
         "past_classes": BotHandlers.past_classes,
+        "wrapped": BotHandlers.wrapped,
         "logout": BotHandlers.logout,
         "broadcast": broadcast_command,
     }

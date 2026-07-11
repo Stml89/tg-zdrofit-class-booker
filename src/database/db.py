@@ -161,6 +161,18 @@ class Database:
                 )
             ''')
             
+            # Sent year-wrap table (avoid sending a year's wrap more than once)
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS year_wrap_sent (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    year INTEGER NOT NULL,
+                    sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(user_id, year),
+                    FOREIGN KEY (user_id) REFERENCES users(telegram_id)
+                )
+            ''')
+            
             # Drop obsolete available_classes table (migration)
             try:
                 cursor.execute("DROP TABLE IF EXISTS available_classes")
@@ -786,5 +798,39 @@ class Database:
             return row is not None
         except Exception as e:
             logger.error(f"Error checking sent reminder: {e}", extra={'user_id': user_id})
+            return False
+
+    # Year wrap operations
+    def add_year_wrap_sent(self, user_id: int, year: int) -> bool:
+        """Record that the year-wrap summary was sent (prevents duplicates)."""
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            cursor.execute(
+                'INSERT OR IGNORE INTO year_wrap_sent (user_id, year) VALUES (?, ?)',
+                (user_id, int(year))
+            )
+            conn.commit()
+            conn.close()
+            logger.info(f"Year wrap recorded for {year}", extra={'user_id': user_id})
+            return True
+        except Exception as e:
+            logger.error(f"Error recording year wrap: {e}", extra={'user_id': user_id})
+            return False
+
+    def is_year_wrap_sent(self, user_id: int, year: int) -> bool:
+        """Check whether the year-wrap summary has already been sent for a year."""
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            cursor.execute(
+                'SELECT 1 FROM year_wrap_sent WHERE user_id = ? AND year = ? LIMIT 1',
+                (user_id, int(year))
+            )
+            row = cursor.fetchone()
+            conn.close()
+            return row is not None
+        except Exception as e:
+            logger.error(f"Error checking year wrap: {e}", extra={'user_id': user_id})
             return False
 
