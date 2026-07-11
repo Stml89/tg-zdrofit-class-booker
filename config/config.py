@@ -287,3 +287,8 @@ SCHEDULER_TIMEOUT = int(os.getenv("SCHEDULER_TIMEOUT", "300"))  # Total timeout 
 # Training reminder settings
 REMINDER_CHECK_INTERVAL_MINUTES = int(os.getenv("REMINDER_CHECK_INTERVAL_MINUTES", "5"))  # How often to check for upcoming-training reminders
 REMINDER_OPTIONS = [15, 30, 60]  # Selectable reminder lead times (minutes before training)
+
+# Year Wrap settings (Spotify-Wrapped style yearly summary)
+YEAR_WRAP_MONTH = int(os.getenv("YEAR_WRAP_MONTH", "12"))  # Month the wrap is sent (default December)
+YEAR_WRAP_DAY = int(os.getenv("YEAR_WRAP_DAY", "31"))      # Day the wrap is sent (default 31st)
+YEAR_WRAP_HOUR = int(os.getenv("YEAR_WRAP_HOUR", "10"))    # Hour (local) the wrap is sent (default 10:00)
