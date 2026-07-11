@@ -69,11 +69,19 @@ class TestSchedulerSkipsNotifications(unittest.IsolatedAsyncioTestCase):
         self.test_db_path = tempfile.mktemp(suffix=".db")
         self.db = Database(db_path=self.test_db_path)
         # Register a user so foreign keys are satisfied
-        from src.database.models import User
+        from src.database.models import User, UserFilter
         self.db.add_user(User(
             telegram_id=999,
             zdrofit_email="user@example.com",
             zdrofit_password="secret",
+        ))
+        # Register an active filter so the scheduler fetches classes
+        self.db.add_filter(UserFilter(
+            user_id=999,
+            club_id=7,
+            club_name="Test Club",
+            zone_id="10",
+            timetable_id="20",
         ))
 
     def tearDown(self):
@@ -96,7 +104,7 @@ class TestSchedulerSkipsNotifications(unittest.IsolatedAsyncioTestCase):
         # Mock API client
         mock_client = MagicMock()
         mock_client.authenticate.return_value = True
-        mock_client.get_available_classes.return_value = available_classes
+        mock_client.get_classes_by_filter.return_value = available_classes
         mock_client.get_user_schedule.return_value = []  # for milestone check
 
         scheduler = ClassCheckScheduler()
@@ -132,7 +140,7 @@ class TestSchedulerSkipsNotifications(unittest.IsolatedAsyncioTestCase):
 
         mock_client = MagicMock()
         mock_client.authenticate.return_value = True
-        mock_client.get_available_classes.return_value = available_classes
+        mock_client.get_classes_by_filter.return_value = available_classes
         mock_client.get_user_schedule.return_value = []
 
         scheduler = ClassCheckScheduler()
@@ -148,6 +156,40 @@ class TestSchedulerSkipsNotifications(unittest.IsolatedAsyncioTestCase):
         self.assertIn(1308999, notified_ids)
         self.assertNotIn(1308455, notified_ids)
         self.assertEqual(len(notified_ids), 1)
+
+    async def test_no_filters_no_notifications(self):
+        """With no filters configured, the scheduler must not notify at all."""
+        from src.scheduler.class_scheduler import ClassCheckScheduler
+        from src.database.models import User
+
+        # Fresh user with NO filters
+        self.db.add_user(User(
+            telegram_id=1000,
+            zdrofit_email="nofilter@example.com",
+            zdrofit_password="secret",
+        ))
+
+        mock_client = MagicMock()
+        mock_client.authenticate.return_value = True
+        mock_client.get_classes_by_filter.return_value = [
+            {"id": 1, "title": "Yoga", "start_time": "2099-01-01T10:00:00"},
+        ]
+        mock_client.get_available_classes.return_value = [
+            {"id": 2, "title": "Pilates", "start_time": "2099-01-01T11:00:00"},
+        ]
+        mock_client.get_user_schedule.return_value = []
+
+        scheduler = ClassCheckScheduler()
+        scheduler.notification_sender = AsyncMock()
+
+        with patch("src.scheduler.class_scheduler.db", self.db), \
+             patch("src.scheduler.class_scheduler.ZdrofitAPIClient", return_value=mock_client):
+            await scheduler._check_user_classes(1000, "nofilter@example.com", "secret")
+
+        # No notifications and no fallback class fetch
+        scheduler.notification_sender.send_class_notification.assert_not_called()
+        mock_client.get_available_classes.assert_not_called()
+        mock_client.get_classes_by_filter.assert_not_called()
 
 
 if __name__ == "__main__":

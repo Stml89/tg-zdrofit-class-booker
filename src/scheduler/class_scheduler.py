@@ -11,8 +11,16 @@ from src.api.zdrofit_client import ZdrofitAPIClient
 from src.telegram_bot.notifications import NotificationSender
 from src.milestones import get_new_milestones
 from src.reminders import find_reminder_filter, parse_reminder_time, should_send_reminder
+from src.year_wrap import compute_year_wrap, format_year_wrap_message
 from src.utils.logger import get_logger
-from config.config import MAX_CONCURRENT_USERS, SCHEDULER_TIMEOUT, REMINDER_CHECK_INTERVAL_MINUTES
+from config.config import (
+    MAX_CONCURRENT_USERS,
+    SCHEDULER_TIMEOUT,
+    REMINDER_CHECK_INTERVAL_MINUTES,
+    YEAR_WRAP_MONTH,
+    YEAR_WRAP_DAY,
+    YEAR_WRAP_HOUR,
+)
 
 logger = get_logger(__name__)
 db = Database()
@@ -50,6 +58,14 @@ class ClassCheckScheduler:
                 CronTrigger(minute=f"*/{REMINDER_CHECK_INTERVAL_MINUTES}"),
                 id='check_reminders',
                 name='Check training reminders',
+                replace_existing=True
+            )
+            # Yearly "Wrapped" summary (e.g. every 31 December at 10:00 local time)
+            self.scheduler.add_job(
+                self._year_wrap_job,
+                CronTrigger(month=YEAR_WRAP_MONTH, day=YEAR_WRAP_DAY, hour=YEAR_WRAP_HOUR, minute=0),
+                id='year_wrap',
+                name='Send year wrap statistics',
                 replace_existing=True
             )
             self.scheduler.start()
@@ -149,6 +165,75 @@ class ClassCheckScheduler:
         
         await asyncio.gather(*[check_user_with_limit(user) for user in users])
     
+    def _year_wrap_job(self):
+        """Job that runs yearly (Dec 31) to send each user their year-wrap summary."""
+        logger.info("=" * 50)
+        logger.info("Starting year-wrap broadcast", extra={'user_id': 'system'})
+        try:
+            if self.loop and not self.loop.is_closed():
+                future = asyncio.run_coroutine_threadsafe(
+                    self._async_send_year_wraps(),
+                    self.loop
+                )
+                future.result(timeout=SCHEDULER_TIMEOUT)
+            else:
+                asyncio.run(self._async_send_year_wraps())
+            logger.info("Year-wrap broadcast completed successfully", extra={'user_id': 'system'})
+        except Exception as e:
+            logger.error(f"Year-wrap broadcast failed: {e}", extra={'user_id': 'system'})
+        finally:
+            logger.info("=" * 50)
+    
+    async def _async_send_year_wraps(self):
+        """Send the year-wrap summary to all users concurrently."""
+        from datetime import datetime
+        year = datetime.now().year
+        
+        users = db.get_all_users()
+        logger.info(f"Found {len(users)} users for year-wrap {year}", extra={'user_id': 'system'})
+        if not users:
+            return
+        
+        semaphore = asyncio.Semaphore(MAX_CONCURRENT_USERS)
+        
+        async def send_with_limit(user):
+            async with semaphore:
+                try:
+                    await self._send_user_year_wrap(
+                        user.telegram_id, user.zdrofit_email, user.zdrofit_password, year
+                    )
+                except Exception as e:
+                    logger.error(f"Error sending year wrap for user: {e}", extra={'user_id': user.telegram_id})
+        
+        await asyncio.gather(*[send_with_limit(user) for user in users])
+    
+    async def _send_user_year_wrap(self, user_id: int, email: str, password: str, year: int):
+        """Compute and send a single user's year-wrap, with dedup per (user, year)."""
+        # Skip users who already received this year's wrap (safe across restarts)
+        if db.is_year_wrap_sent(user_id, year):
+            logger.debug(f"Year wrap {year} already sent, skipping", extra={'user_id': user_id})
+            return
+        
+        client = ZdrofitAPIClient(email, password)
+        authenticated = await asyncio.to_thread(self._sync_authenticate, client, user_id)
+        if not authenticated:
+            logger.warning(f"Year wrap: failed to authenticate", extra={'user_id': user_id})
+            return
+        
+        schedule = await asyncio.to_thread(client.get_user_schedule, user_id)
+        stats = compute_year_wrap(schedule, year)
+        
+        if stats is None:
+            # No classes attended this year — don't spam the user, but mark as done
+            logger.info(f"No classes in {year}, skipping wrap", extra={'user_id': user_id})
+            db.add_year_wrap_sent(user_id, year)
+            return
+        
+        message = format_year_wrap_message(stats)
+        await self.notification_sender.send_year_wrap(user_id, message)
+        db.add_year_wrap_sent(user_id, year)
+        logger.info(f"Year wrap {year} sent ({stats.total_classes} classes)", extra={'user_id': user_id})
+    
     # ==================== Blocking API helpers (run in thread pool) ====================
     
     @staticmethod
@@ -160,11 +245,6 @@ class ClassCheckScheduler:
     def _sync_get_classes(client: ZdrofitAPIClient, user_filter, user_id: int) -> List[Dict]:
         """Get classes by filter (blocking, runs in thread)."""
         return client.get_classes_by_filter(user_filter, user_id)
-    
-    @staticmethod
-    def _sync_get_default_classes(client: ZdrofitAPIClient, user_id: int, club_id: int) -> List[Dict]:
-        """Get default club classes (blocking, runs in thread)."""
-        return client.get_available_classes(user_id, club_id=club_id)
     
     @staticmethod
     def _sync_book_class(client: ZdrofitAPIClient, class_id: str, user_id: int) -> bool:
@@ -195,48 +275,47 @@ class ClassCheckScheduler:
             user_filters = db.get_all_filters(user_id)
             logger.debug(f"User has {len(user_filters)} filters", extra={'user_id': user_id})
             
+            # No filters = user opted out of notifications entirely. Do nothing.
+            if not user_filters:
+                logger.info(f"No filters configured, skipping notifications", extra={'user_id': user_id})
+                return
+            
             # Map class_id to the filters it matches (to track which filter it came from)
             class_to_filters = {}  # {class_id: [filter1, filter2, ...]}
             all_classes = []
             
             # Get available classes for each filter (offload blocking calls to threads)
-            if user_filters:
-                active_filters = [f for f in user_filters if not f.is_paused and f.club_id]
+            active_filters = [f for f in user_filters if not f.is_paused and f.club_id]
+            
+            # Log skipped paused filters
+            for user_filter in user_filters:
+                if user_filter.is_paused:
+                    logger.debug(f"Filter {user_filter.id} is paused until {user_filter.paused_until}, skipping", 
+                                extra={'user_id': user_id})
+            
+            # Fetch classes for all active filters concurrently in threads
+            if active_filters:
+                fetch_tasks = [
+                    asyncio.to_thread(self._sync_get_classes, client, user_filter, user_id)
+                    for user_filter in active_filters
+                ]
+                results = await asyncio.gather(*fetch_tasks, return_exceptions=True)
                 
-                # Log skipped paused filters
-                for user_filter in user_filters:
-                    if user_filter.is_paused:
-                        logger.debug(f"Filter {user_filter.id} is paused until {user_filter.paused_until}, skipping", 
+                for user_filter, result in zip(active_filters, results):
+                    if isinstance(result, Exception):
+                        logger.error(f"Error fetching classes for filter {user_filter.id}: {result}", 
                                     extra={'user_id': user_id})
-                
-                # Fetch classes for all active filters concurrently in threads
-                if active_filters:
-                    fetch_tasks = [
-                        asyncio.to_thread(self._sync_get_classes, client, user_filter, user_id)
-                        for user_filter in active_filters
-                    ]
-                    results = await asyncio.gather(*fetch_tasks, return_exceptions=True)
-                    
-                    for user_filter, result in zip(active_filters, results):
-                        if isinstance(result, Exception):
-                            logger.error(f"Error fetching classes for filter {user_filter.id}: {result}", 
-                                        extra={'user_id': user_id})
-                            continue
-                        classes = result
-                        all_classes.extend(classes)
-                        # Track which filters match this class
-                        for cls in classes:
-                            class_id = cls.get("id")
-                            if class_id not in class_to_filters:
-                                class_to_filters[class_id] = []
-                            class_to_filters[class_id].append(user_filter)
-                        logger.info(f"Retrieved {len(classes)} classes for filter: {user_filter.club_name}", 
-                                   extra={'user_id': user_id})
-            else:
-                # No filters - get default club classes (offload to thread)
-                classes = await asyncio.to_thread(self._sync_get_default_classes, client, user_id, 7)
-                all_classes = classes
-                logger.info(f"Retrieved {len(classes)} available classes (no filters)", extra={'user_id': user_id})
+                        continue
+                    classes = result
+                    all_classes.extend(classes)
+                    # Track which filters match this class
+                    for cls in classes:
+                        class_id = cls.get("id")
+                        if class_id not in class_to_filters:
+                            class_to_filters[class_id] = []
+                        class_to_filters[class_id].append(user_filter)
+                    logger.info(f"Retrieved {len(classes)} classes for filter: {user_filter.club_name}", 
+                               extra={'user_id': user_id})
             
             # Remove duplicates by class ID (in case multiple filters overlap)
             seen_ids = set()
