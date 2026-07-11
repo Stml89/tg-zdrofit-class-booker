@@ -8,6 +8,7 @@ Telegram bot for monitoring available group classes at Zdrofit fitness centers w
 - **Class Monitoring** - Automatic availability checks every 60 minutes
 - **Flexible Filters** - Filter by gyms, trainers, class types, time and weekdays
 - **Notifications** - Instant alerts when free spots appear
+- **Year Wrap** - Spotify-Wrapped style yearly stats, auto-sent every 31 December (or anytime via `/wrapped`)
 - **Security** - Password encryption for all users
 
 ## Quick Start
@@ -39,6 +40,7 @@ CronTrigger(minute="0", hour="*/2") - every 2h
 | `/filters` | Manage filters |
 | `/bookings` | View bookings |
 | `/past_classes` | View past classes |
+| `/wrapped` | Your year in review (fitness stats) |
 | `/logout` | Logout |
 
 ## Docker Setup
@@ -149,11 +151,10 @@ src/
 - [x] Send notification to customers
 - [x] Add motivation messages/bages for X attended trainings
 - [x] Implement training reminder
-- [ ] Add end year wrap stats and info
-- [ ] Usage statistics
-- [ ] Add subscription
+- [x] Add end year wrap stats and info
 - [ ] Diff users by type: free/paid
 - [ ] Integrate with payment system
+- [ ] Add subscription
 - [ ] Check changes in schedule
 - [ ] Check adding new classes
 - [ ] Export to Google Calendar
