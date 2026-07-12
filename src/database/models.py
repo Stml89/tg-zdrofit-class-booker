@@ -12,6 +12,7 @@ class User:
     telegram_id: int
     zdrofit_email: str
     zdrofit_password: str  # Encrypted password
+    is_paid: bool = True  # Subscription tier: True = paid, False = free. Defaults to paid for now.
     created_at: datetime = None
     updated_at: datetime = None
     _password_encrypted: bool = False  # Track if password is already encrypted

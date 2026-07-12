@@ -152,7 +152,7 @@ src/
 - [x] Add motivation messages/bages for X attended trainings
 - [x] Implement training reminder
 - [x] Add end year wrap stats and info
-- [ ] Diff users by type: free/paid
+- [x] Diff users by type: free/paid
 - [ ] Integrate with payment system
 - [ ] Add subscription
 - [ ] Check changes in schedule

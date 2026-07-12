@@ -38,6 +38,7 @@ class Database:
                     telegram_id INTEGER PRIMARY KEY,
                     zdrofit_email TEXT NOT NULL UNIQUE,
                     zdrofit_password TEXT NOT NULL,
+                    is_paid INTEGER DEFAULT 1,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
@@ -124,6 +125,14 @@ class Database:
                 # Column already exists, ignore
                 pass
             
+            # Add is_paid column to users if it doesn't exist (migration).
+            # Existing users default to paid (1) per current business rules.
+            try:
+                cursor.execute("ALTER TABLE users ADD COLUMN is_paid INTEGER DEFAULT 0")
+            except sqlite3.OperationalError:
+                # Column already exists, ignore
+                pass
+            
             # User milestones table
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS user_milestones (
@@ -193,7 +202,11 @@ class Database:
     
     # User operations
     def add_user(self, user: User) -> bool:
-        """Add or update user with encrypted password."""
+        """Add or update user with encrypted password.
+
+        Preserves an existing subscription tier (``is_paid``) across re-login so
+        that logging in again does not silently upgrade/downgrade the account.
+        """
         try:
             conn = self.get_connection()
             cursor = conn.cursor()
@@ -201,11 +214,19 @@ class Database:
             # Encrypt password before storing
             encrypted_password = PasswordEncryptor.encrypt(user.zdrofit_password)
             
+            # Preserve existing tier if the user already exists
+            cursor.execute('SELECT is_paid FROM users WHERE telegram_id = ?', (user.telegram_id,))
+            existing = cursor.fetchone()
+            if existing is not None:
+                is_paid = existing['is_paid']
+            else:
+                is_paid = 1 if user.is_paid else 0
+            
             cursor.execute('''
                 INSERT OR REPLACE INTO users 
-                (telegram_id, zdrofit_email, zdrofit_password, updated_at)
-                VALUES (?, ?, ?, ?)
-            ''', (user.telegram_id, user.zdrofit_email, encrypted_password, datetime.now()))
+                (telegram_id, zdrofit_email, zdrofit_password, is_paid, updated_at)
+                VALUES (?, ?, ?, ?, ?)
+            ''', (user.telegram_id, user.zdrofit_email, encrypted_password, is_paid, datetime.now()))
             conn.commit()
             conn.close()
             logger.info(f"User added/updated", extra={'user_id': user.telegram_id})
@@ -230,6 +251,7 @@ class Database:
                     telegram_id=row['telegram_id'],
                     zdrofit_email=row['zdrofit_email'],
                     zdrofit_password=decrypted_password,
+                    is_paid=bool(row['is_paid']),
                     created_at=datetime.fromisoformat(row['created_at']),
                     updated_at=datetime.fromisoformat(row['updated_at'])
                 )
@@ -250,6 +272,37 @@ class Database:
             return True
         except Exception as e:
             logger.error(f"Error deleting user: {e}", extra={'user_id': telegram_id})
+            return False
+    
+    def set_user_paid(self, telegram_id: int, is_paid: bool) -> bool:
+        """Set a user's subscription tier (True = paid, False = free)."""
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            cursor.execute(
+                'UPDATE users SET is_paid = ?, updated_at = ? WHERE telegram_id = ?',
+                (1 if is_paid else 0, datetime.now(), telegram_id)
+            )
+            conn.commit()
+            updated = cursor.rowcount
+            conn.close()
+            logger.info(f"User tier set to {'paid' if is_paid else 'free'}", extra={'user_id': telegram_id})
+            return updated > 0
+        except Exception as e:
+            logger.error(f"Error setting user tier: {e}", extra={'user_id': telegram_id})
+            return False
+    
+    def is_user_paid(self, telegram_id: int) -> bool:
+        """Return True if the user exists and is on the paid tier."""
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            cursor.execute('SELECT is_paid FROM users WHERE telegram_id = ?', (telegram_id,))
+            row = cursor.fetchone()
+            conn.close()
+            return bool(row['is_paid']) if row else False
+        except Exception as e:
+            logger.error(f"Error checking user tier: {e}", extra={'user_id': telegram_id})
             return False
     
     def get_all_user_telegram_ids(self) -> List[int]:
@@ -282,6 +335,7 @@ class Database:
                     telegram_id=row['telegram_id'],
                     zdrofit_email=row['zdrofit_email'],
                     zdrofit_password=decrypted_password,
+                    is_paid=bool(row['is_paid']),
                     created_at=datetime.fromisoformat(row['created_at']),
                     updated_at=datetime.fromisoformat(row['updated_at'])
                 ))
